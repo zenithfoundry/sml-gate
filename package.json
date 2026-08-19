@@ -1,0 +1,30 @@
+{
+  "name": "small-language-model-gate",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "A decoupled local-SLM pre-processing and routing layer.",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "config": "node --import tsx src/config.ts",
+    "test": "jest --passWithNoTests",
+    "test:decoupling": "bash -c 'trap \"mv .src_adapters_tmp src/adapters 2>/dev/null\" EXIT; mv src/adapters .src_adapters_tmp; pnpm run build && pnpm run test'"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "better-sqlite3": "^11.2.1",
+    "dotenv": "^16.4.5",
+    "langfuse": "^3.19.0",
+    "ollama": "^0.5.8",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.14.9",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.2",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.3"
+  }
+}
