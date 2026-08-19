@@ -76,6 +76,8 @@ const envSchema = z.object({
   PROMPT_VERSION: z.string().default('v1'),
   RAM_PRESET: z.enum(['ram-4', 'ram-8', 'ram-12', 'ram-16', 'ram-24', 'ram-32', 'custom']).default('custom'),
   TLS_ADAPTER: parseBoolean(false),
+  DISTILL_PRESERVE_PATH: z.string().optional().transform(v => v?.trim() || null),
+  DISTILL_PRESERVE_MODE: z.enum(['extend', 'replace']).default('extend'),
 });
 
 const parsedEnv = envSchema.parse(process.env);
