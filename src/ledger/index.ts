@@ -28,8 +28,15 @@ export interface LedgerEvent {
   meta?: string; // JSON
 }
 
+import fs from 'node:fs';
+import path from 'node:path';
+
 export function getDb(): Database.Database {
   if (!db) {
+    const dir = path.dirname(CONFIG.LEDGER_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
     db = new Database(CONFIG.LEDGER_PATH);
     db.pragma('journal_mode = WAL');
     db.exec(`
@@ -78,7 +85,31 @@ export function writeEvent(e: LedgerEvent) {
       @verifier_flags, @quality_score, @slm_gate, @meta
     )
   `);
-  statement.run(e);
+  
+  // better-sqlite3 strictly requires all named parameters to exist on the object, 
+  // so we must coalesce any undefined optional properties to null.
+  statement.run({
+    ts: e.ts,
+    layer: e.layer,
+    request_id: e.request_id,
+    session_id: e.session_id ?? null,
+    skill: e.skill ?? null,
+    route: e.route,
+    is_local_call: e.is_local_call,
+    slm_model: e.slm_model ?? null,
+    api_model: e.api_model ?? null,
+    in_tok: e.in_tok,
+    out_tok: e.out_tok,
+    api_in_tok: e.api_in_tok,
+    api_out_tok: e.api_out_tok,
+    cost_usd: e.cost_usd,
+    slm_latency_s: e.slm_latency_s,
+    api_latency_s: e.api_latency_s,
+    verifier_flags: e.verifier_flags ?? null,
+    quality_score: e.quality_score ?? null,
+    slm_gate: e.slm_gate,
+    meta: e.meta ?? null
+  });
 
   // Mirror to Langfuse if enabled
   LangfuseSink.mirrorEvent(e);

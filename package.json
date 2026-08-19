@@ -31,5 +31,10 @@
     "ts-jest": "^29.2.2",
     "tsx": "^4.16.2",
     "typescript": "^5.5.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3"
+    ]
   }
 }
