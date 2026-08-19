@@ -10,7 +10,8 @@
     "test": "NODE_OPTIONS=--experimental-vm-modules jest --passWithNoTests",
     "test:decoupling": "bash -c 'trap \"mv .src_adapters_tmp src/adapters 2>/dev/null\" EXIT; mv src/adapters .src_adapters_tmp; pnpm run build && pnpm run test'",
     "models:check": "node --import tsx src/models/check.ts",
-    "ledger:smoke": "tsx src/ledger/smoke.ts"
+    "ledger:smoke": "tsx src/ledger/smoke.ts",
+    "llm-gate:serve": "tsx src/llm-gate/index.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
