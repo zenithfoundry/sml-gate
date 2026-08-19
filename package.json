@@ -7,8 +7,9 @@
     "build": "tsc",
     "dev": "tsx src/cli.ts",
     "config": "node --import tsx src/config.ts",
-    "test": "jest --passWithNoTests",
-    "test:decoupling": "bash -c 'trap \"mv .src_adapters_tmp src/adapters 2>/dev/null\" EXIT; mv src/adapters .src_adapters_tmp; pnpm run build && pnpm run test'"
+    "test": "NODE_OPTIONS=--experimental-vm-modules jest --passWithNoTests",
+    "test:decoupling": "bash -c 'trap \"mv .src_adapters_tmp src/adapters 2>/dev/null\" EXIT; mv src/adapters .src_adapters_tmp; pnpm run build && pnpm run test'",
+    "models:check": "node --import tsx src/models/check.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
@@ -16,9 +17,11 @@
     "dotenv": "^16.4.5",
     "langfuse": "^3.19.0",
     "ollama": "^0.5.8",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "zod-to-json-schema": "^3.23.1"
   },
   "devDependencies": {
+    "@jest/globals": "^30.4.1",
     "@types/better-sqlite3": "^7.6.11",
     "@types/jest": "^29.5.12",
     "@types/node": "^20.14.9",

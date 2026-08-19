@@ -6,9 +6,9 @@ import path from 'path';
 // Load .env (if it exists) into process.env. Does not crash if missing.
 config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const ROOT_DIR = path.resolve(__dirname, '..');
+const filename = fileURLToPath(import.meta.url);
+const dirname = path.dirname(filename);
+const ROOT_DIR = path.resolve(dirname, '..');
 const OUTPUT_DIR = path.join(ROOT_DIR, 'output');
 
 // Zod pre-processors for env strings
