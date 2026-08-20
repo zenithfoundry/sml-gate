@@ -16,6 +16,10 @@ output/
 *.sqlite-journal
 *.sqlite-wal
 *.sqlite-shm
+harness/.cache/
+harness/.uv/
+*.py[cod]
+__pycache__/
 
 # ─── python harness ───
 __pycache__/
