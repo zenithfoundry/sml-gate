@@ -28,8 +28,9 @@ export class SLM {
           format: jsonSchema as any,
           options: {
             temperature: temp,
-            num_ctx: CONFIG.NUM_CTX
-          }
+            num_ctx: CONFIG.NUM_CTX,
+            think: false
+          } as any
         });
         responseText = response.message.content;
       } else if (CONFIG.SLM_PROVIDER === 'openai') {
@@ -106,10 +107,11 @@ export class SLM {
         messages,
         options: {
           temperature,
-          num_ctx: CONFIG.NUM_CTX
-        }
+          num_ctx: CONFIG.NUM_CTX,
+          think: false
+        } as any
       });
-      return response.message.content;
+      return stripThinkTags(response.message.content);
     } else if (CONFIG.SLM_PROVIDER === 'openai') {
       const response = await fetch(`${CONFIG.OLLAMA_HOST}/v1/chat/completions`, {
         method: 'POST',
@@ -127,7 +129,7 @@ export class SLM {
         throw new Error(`OpenAI API error: ${response.statusText}`);
       }
       const data = await response.json();
-      return data.choices[0].message.content;
+      return stripThinkTags(data.choices[0].message.content);
     }
     throw new Error(`Unsupported SLM_PROVIDER: ${CONFIG.SLM_PROVIDER}`);
   }
@@ -159,8 +161,9 @@ export class SLM {
         stream: true,
         options: {
           temperature,
-          num_ctx: CONFIG.NUM_CTX
-        }
+          num_ctx: CONFIG.NUM_CTX,
+          think: false
+        } as any
       });
       for await (const chunk of response) {
         yield chunk.message.content;

@@ -44,6 +44,7 @@ const envSchema = z.object({
   SLM_GATE_MODEL: z.string().optional(),  // resolved below
   NUM_CTX: parseInteger(16384),
   TEMPERATURE: parseFloatNumber(0),
+  SLM_TIMEOUT_MS: parseInteger(20000),
   SELF_CONSISTENCY_K: parseInteger(3),
   SELF_CONSISTENCY_TEMP: parseFloatNumber(0.7),
 

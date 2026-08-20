@@ -12,7 +12,9 @@
     "models:check": "node --import tsx src/models/check.ts",
     "ledger:smoke": "tsx src/ledger/smoke.ts",
     "llm-gate:serve": "tsx src/llm-gate/index.ts",
-    "mcp-gate:stdio": "tsx src/mcp-gate/index.ts"
+    "mcp-gate:stdio": "tsx src/mcp-gate/index.ts",
+    "mcp-gate:http": "tsx src/mcp-gate/index.ts",
+    "smoke:mcp": "tsx scripts/smoke-mcp.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

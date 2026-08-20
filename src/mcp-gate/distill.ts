@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import { CONFIG } from '../config.js';
+import { withSlmTimeout } from '../models/types.js';
 
 export const BUILTIN_PATTERNS: RegExp[] = [
   // requirement keywords
@@ -109,7 +110,7 @@ export async function distill(
 
     const isPreserved = preservePatterns.some(p => p.test(line));
     if (isPreserved) {
-      const placeholder = `[[PRESERVED_LINE_${i}]]`;
+      const placeholder = `⟦PRESERVE_${i}⟧`;
       preserved.set(placeholder, line);
       modifiedLines.push(placeholder);
       preservedCount++;
@@ -123,7 +124,7 @@ export async function distill(
   }
 
   const textToCompress = modifiedLines.join('\n');
-  const compressed = await slm(textToCompress, task);
+  const compressed = await withSlmTimeout(slm(textToCompress, task), 'distill', CONFIG.SLM_TIMEOUT_MS);
 
   // Restore placeholders programmatically
   let finalText = compressed;

@@ -3,6 +3,7 @@ import { SLM } from '../models/slm.js';
 import { selfConsistency } from '../models/reasoning.js';
 import { getDb, writeEvent } from '../ledger/index.js';
 import { CONFIG } from '../config.js';
+import { withSlmTimeout } from '../models/types.js';
 import {
   RiskLevel,
   SourceKind,
@@ -156,7 +157,7 @@ Context: ${skillText}
 
 Output a list of decisions that need to be made before work can begin. If none, return an empty array.`;
 
-  const res = await slm.generateJSON(CONFIG.SLM_BRAIN_MODEL, prompt, schema, 0);
+  const res = await withSlmTimeout(slm.generateJSON(CONFIG.SLM_BRAIN_MODEL, prompt, schema, 0), 'resolver', CONFIG.SLM_TIMEOUT_MS);
   return res.decisions;
 }
 
@@ -183,7 +184,7 @@ export async function resolveEach(
       try {
         const patternPrompt = `What file paths or contents should we grep to answer this question: "${dec.question}"?
 Return 1 or 2 simple patterns like "package.json" or "yarn.lock" or "docker-compose.yml".`;
-        const patternRes = await slm.generateJSON(CONFIG.SLM_BRAIN_MODEL, patternPrompt, patternSchema, 0);
+        const patternRes = await withSlmTimeout(slm.generateJSON(CONFIG.SLM_BRAIN_MODEL, patternPrompt, patternSchema, 0), 'resolver', CONFIG.SLM_TIMEOUT_MS);
         
         let evidenceFound = '';
         for (const p of patternRes.patterns) {
@@ -197,7 +198,7 @@ Return 1 or 2 simple patterns like "package.json" or "yarn.lock" or "docker-comp
         if (evidenceFound) {
           const ansSchema = z.object({ answer: z.string(), options: z.array(z.string()) });
           const ansPrompt = `Given this evidence from the repository:\n${evidenceFound.slice(0, 1000)}\nAnswer the question: ${dec.question}`;
-          const ansRes = await slm.generateJSON(CONFIG.SLM_BRAIN_MODEL, ansPrompt, ansSchema, 0);
+          const ansRes = await withSlmTimeout(slm.generateJSON(CONFIG.SLM_BRAIN_MODEL, ansPrompt, ansSchema, 0), 'resolver', CONFIG.SLM_TIMEOUT_MS);
           
           resolved = {
             id: dec.id,
@@ -284,7 +285,7 @@ Categories:
 - security: auth, tokens, crypto, permissions, network exposure
 - destructive: dropping databases, deleting files, overwriting critical data`;
 
-      const res = await slm.generateJSON(CONFIG.SLM_GATE_MODEL, prompt, schema, 0);
+      const res = await withSlmTimeout(slm.generateJSON(CONFIG.SLM_GATE_MODEL, prompt, schema, 0), 'resolver', CONFIG.SLM_TIMEOUT_MS);
       risk = res.risk;
     } catch (err) {
       risk = 'security';

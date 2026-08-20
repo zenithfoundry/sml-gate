@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { SLM } from './slm.js';
 import { roles } from './roles.js';
-import { ClassifyCategory } from './types.js';
+import { ClassifyCategory, withSlmTimeout } from './types.js';
+import { CONFIG } from '../config.js';
 
 export function checkAgreement<T>(samples: T[]): T | null {
   if (samples.length === 0) return null;
@@ -42,7 +43,7 @@ export async function selfConsistency<T>(
   temperature: number = 0.7
 ): Promise<T> {
   const promises = Array.from({ length: k }).map(() =>
-    slm.generateJSON<T>(model, prompt, schema, temperature).catch(() => null)
+    withSlmTimeout(slm.generateJSON<T>(model, prompt, schema, temperature), 'selfConsistency', CONFIG.SLM_TIMEOUT_MS).catch(() => null)
   );
   
   const results = await Promise.all(promises);
@@ -54,7 +55,7 @@ export async function selfConsistency<T>(
   }
   
   // Fallback to a temp=0 run if no agreement
-  return slm.generateJSON<T>(model, prompt, schema, 0);
+  return withSlmTimeout(slm.generateJSON<T>(model, prompt, schema, 0), 'selfConsistency', CONFIG.SLM_TIMEOUT_MS);
 }
 
 export async function classify(
@@ -67,7 +68,7 @@ export async function classify(
 
   const prompt = `Classify the following text into one of the categories: classify, extract, format, boolean, short_factual, trivial_edit, other.\n\nText: ${text}`;
   
-  const result = await slm.generateJSON(roles.gate, prompt, schema, 0);
+  const result = await withSlmTimeout(slm.generateJSON(roles.gate, prompt, schema, 0), 'classify', CONFIG.SLM_TIMEOUT_MS);
   return result.category;
 }
 
@@ -81,6 +82,6 @@ export async function compress(
 
   const prompt = `Compress the following text while maintaining the core meaning.\n\nText: ${text}`;
   
-  const result = await slm.generateJSON(roles.gate, prompt, schema, 0);
+  const result = await withSlmTimeout(slm.generateJSON(roles.gate, prompt, schema, 0), 'compress', CONFIG.SLM_TIMEOUT_MS);
   return result.compressedText;
 }
