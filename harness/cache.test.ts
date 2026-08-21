@@ -23,7 +23,8 @@ describe('harness cache logic', () => {
       taskId,
       route,
       answer: 'Cached answer',
-      tokens: 10,
+      inTokens: 10,
+      outTokens: 0,
       cost: 0,
       ts: new Date().toISOString()
     });
@@ -55,7 +56,8 @@ describe('harness cache logic', () => {
       taskId,
       route,
       answer: 'Cached answer',
-      tokens: 10,
+      inTokens: 10,
+      outTokens: 0,
       cost: 0,
       ts: new Date().toISOString()
     });

@@ -9,10 +9,10 @@ describe('arms derivation', () => {
     // T3: SLM wrong, API right, armB defer (wrong)
     // T4: SLM right, API wrong, armB escalate (wrong)
     const results: GradedResult[] = [
-      { taskId: '1', route: 'defer_local', slmCorrect: true, apiCorrect: true, armBCorrect: true, armBRoute: 'defer_local', armBCost: 0, apiCost: 10 },
-      { taskId: '2', route: 'escalate', slmCorrect: false, apiCorrect: true, armBCorrect: true, armBRoute: 'escalate', armBCost: 10, apiCost: 10 },
-      { taskId: '3', route: 'defer_local', slmCorrect: false, apiCorrect: true, armBCorrect: false, armBRoute: 'defer_local', armBCost: 0, apiCost: 10 },
-      { taskId: '4', route: 'escalate', slmCorrect: true, apiCorrect: false, armBCorrect: false, armBRoute: 'escalate', armBCost: 10, apiCost: 10 }
+      { taskId: '1', route: 'defer_local', slmCorrect: true, apiCorrect: true, armBCorrect: true, armBRoute: 'defer_local', armBCost: 0, apiCost: 10, armBInTokens: 0, armBOutTokens: 0, apiInTokens: 0, apiOutTokens: 0 },
+      { taskId: '2', route: 'escalate', slmCorrect: false, apiCorrect: true, armBCorrect: true, armBRoute: 'escalate', armBCost: 10, apiCost: 10, armBInTokens: 0, armBOutTokens: 0, apiInTokens: 0, apiOutTokens: 0 },
+      { taskId: '3', route: 'defer_local', slmCorrect: false, apiCorrect: true, armBCorrect: false, armBRoute: 'defer_local', armBCost: 0, apiCost: 10, armBInTokens: 0, armBOutTokens: 0, apiInTokens: 0, apiOutTokens: 0 },
+      { taskId: '4', route: 'escalate', slmCorrect: true, apiCorrect: false, armBCorrect: false, armBRoute: 'escalate', armBCost: 10, apiCost: 10, armBInTokens: 0, armBOutTokens: 0, apiInTokens: 0, apiOutTokens: 0 }
     ];
 
     const arms = deriveArms(results);
