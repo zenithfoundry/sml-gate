@@ -1,14 +1,14 @@
 import { CONFIG } from '../config.js';
-import { SLM } from '../models/slm.js';
-import { classify } from '../models/reasoning.js';
-import { verify } from '../verifier/index.js';
 import { LedgerEvent } from '../ledger/index.js';
+import { classify } from '../models/reasoning.js';
+import { SLM } from '../models/slm.js';
 import { calculateCostUsd } from '../pricing/index.js';
-import { InternalRequest, InternalMessage } from './formats/internal.js';
-import { isLatestInstructionFromTool } from '../utils/safety.js';
 import { compressContext } from '../utils/compression.js';
-import { buildOpenAIRequest } from './formats/openai.js';
+import { isLatestInstructionFromTool } from '../utils/safety.js';
+import { verify } from '../verifier/index.js';
 import { buildAnthropicRequest } from './formats/anthropic.js';
+import { InternalMessage, InternalRequest } from './formats/internal.js';
+import { buildOpenAIRequest } from './formats/openai.js';
 
 export interface PipelineOptions {
   routePolicy: 'raw' | 'auto' | 'force-local';
@@ -198,10 +198,12 @@ export async function processPipeline(
 
   // Perform API request
   try {
+    console.log('DEBUG FETCH:', { fetchUrl, fetchHeaders: {...fetchHeaders, Authorization: `${fetchHeaders.Authorization.slice(7, 10)}***`}, fetchBody: JSON.stringify(fetchBody, null, 2) });
     const apiRes = await fetch(fetchUrl!, {
       method: 'POST',
       headers: fetchHeaders,
-      body: JSON.stringify(fetchBody)
+      body: JSON.stringify(fetchBody),
+      signal: AbortSignal.timeout(30000)
     });
 
     if (!apiRes.ok) {

@@ -14,7 +14,9 @@
     "llm-gate:serve": "tsx src/llm-gate/index.ts",
     "mcp-gate:stdio": "tsx src/mcp-gate/index.ts",
     "mcp-gate:http": "tsx src/mcp-gate/index.ts",
-    "smoke:mcp": "tsx scripts/smoke-mcp.ts"
+    "smoke:mcp": "tsx scripts/smoke-mcp.ts",
+    "bench": "tsx harness/run.ts",
+    "bench:reset": "rm -rf harness/.cache && pnpm run bench"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

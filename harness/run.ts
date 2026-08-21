@@ -1,0 +1,266 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { CONFIG } from '../src/config.js';
+import { LedgerEvent } from '../src/ledger/index.js';
+import { deriveArms, GradedResult } from './arms.js';
+import { renderSvg } from './curve.js';
+import { loadTasks } from './dataset.js';
+import { extractAnswer, gradeAnswer } from './grade.js';
+import { writeReport } from './report.js';
+import { processPipeline } from '../src/llm-gate/pipeline.js';
+import { InternalRequest } from '../src/llm-gate/formats/internal.js';
+
+const CACHE_DIR = path.join(CONFIG.ROOT_DIR, 'harness', '.cache');
+const OUTPUT_DIR = CONFIG.OUTPUT_DIR;
+
+if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
+if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+
+/**
+ * Represents a cached evaluation result.
+ * Stores configuration state alongside the result to ensure 
+ * changes to models or prompts automatically invalidate stale answers.
+ */
+interface CacheEntry {
+  promptVersion: string;
+  slmModel: string;
+  apiModel: string;
+  taskId: string;
+  route: string; // 'force-local' | 'raw' | 'auto'
+  answer: string;
+  inTokens: number;
+  outTokens: number;
+  cost: number;
+  ts: string;
+  error?: string;
+  armBRoute?: LedgerEvent['route'];
+}
+
+function getCachePath(taskId: string, route: string) {
+  return path.join(CACHE_DIR, `synthetic_${taskId}_${route}.json`);
+}
+
+/**
+ * Reads an evaluation result from the cache.
+ * Returns null (forcing a re-fetch) if the cache entry was generated 
+ * using a different prompt version, SLM model, or Cloud model than 
+ * currently configured.
+ */
+function readCache(taskId: string, route: string): CacheEntry | null {
+  const p = getCachePath(taskId, route);
+  if (!fs.existsSync(p)) return null;
+  try {
+    const data = JSON.parse(fs.readFileSync(p, 'utf8')) as CacheEntry;
+    if (
+      data.promptVersion === CONFIG.PROMPT_VERSION &&
+      data.slmModel === CONFIG.SLM_BRAIN_MODEL &&
+      data.apiModel === (CONFIG.CLOUD_MODEL || 'unknown')
+    ) {
+      return data;
+    } else {
+      console.log(`cache stale (model changed): re-fetching ${taskId} ${route}`);
+      return null;
+    }
+  } catch (e) {
+    // ignore
+  }
+  return null;
+}
+
+function writeCache(taskId: string, route: string, entry: CacheEntry) {
+  const p = getCachePath(taskId, route);
+  fs.writeFileSync(p, JSON.stringify(entry, null, 2));
+}
+
+/**
+ * Executes a simulated request through the LLM gate's internal pipeline.
+ * Bypasses HTTP boundaries entirely to avoid networking flakiness and 
+ * the requirement to have the `llm-gate` server running during benchmark execution.
+ */
+async function callLlmGate(prompt: string, routeHeader: string): Promise<{ answer: string, reqId: string | null, error?: string, cost?: number, inTokens?: number, outTokens?: number, route?: LedgerEvent['route'] }> {
+  try {
+    const req: InternalRequest = {
+      model: CONFIG.CLOUD_MODEL || 'unknown',
+      messages: [{ role: 'user', content: prompt }]
+    };
+    const reqId = crypto.randomUUID();
+    const res = await processPipeline(reqId, req, { routePolicy: routeHeader as any });
+    
+    return {
+      answer: extractAnswer(res.body),
+      reqId,
+      cost: res.costUsd,
+      inTokens: res.inTok,
+      outTokens: res.outTok,
+      route: res.route
+    };
+  } catch (err: any) {
+    return { answer: '', reqId: null, error: err.message };
+  }
+}
+
+/**
+ * Main execution harness.
+ * Processes each task through up to three configured routes:
+ * 1. force-local: Used to calculate the all-SLM baseline.
+ * 2. raw: Used to calculate the 100%-Cloud (Arm A) baseline.
+ * 3. auto: The actual intelligent routing mechanism (Arm B).
+ */
+async function run() {
+  const args = process.argv.slice(2);
+  const nArgIdx = args.indexOf('--n');
+  let numTasks = -1;
+  if (nArgIdx >= 0 && args[nArgIdx + 1]) {
+    numTasks = parseInt(args[nArgIdx + 1], 10);
+  }
+
+  const hasCloud = !!CONFIG.CLOUD_API_KEY && !!CONFIG.CLOUD_MODEL;
+  if (!hasCloud) {
+    console.log('WARNING: CLOUD_* is unset. Gracefully degrading to all_slm only.');
+  }
+
+  const tasks = loadTasks();
+  const tasksToRun = numTasks > 0 ? tasks.slice(0, numTasks) : tasks;
+  const results: GradedResult[] = [];
+  let errorCount = 0;
+
+  const BATCH_SIZE = 3;
+  let completed = 0;
+  console.log(`Starting benchmark for ${tasksToRun.length} tasks (Concurrency: ${BATCH_SIZE})...`);
+
+  for (let i = 0; i < tasksToRun.length; i += BATCH_SIZE) {
+    const batch = tasksToRun.slice(i, i + BATCH_SIZE);
+    
+    await Promise.all(batch.map(async (task) => {
+      // 1. Calculate All-SLM Baseline (force-local)
+      let localCache = readCache(task.id, 'force-local');
+      if (!localCache) {
+        const { answer, error } = await callLlmGate(task.prompt, 'force-local');
+        localCache = {
+          promptVersion: CONFIG.PROMPT_VERSION,
+          slmModel: CONFIG.SLM_BRAIN_MODEL,
+          apiModel: CONFIG.CLOUD_MODEL || 'unknown',
+          taskId: task.id,
+          route: 'force-local',
+          answer,
+          inTokens: 0,
+          outTokens: 0,
+          cost: 0,
+          ts: new Date().toISOString(),
+          error
+        };
+        writeCache(task.id, 'force-local', localCache);
+      }
+      const slmCorrect = gradeAnswer(task, localCache.answer) && !localCache.error;
+      if (localCache.error) errorCount++;
+
+      let apiCorrect = false;
+      let apiCost = 0;
+      let apiInTokens = 0;
+      let apiOutTokens = 0;
+      
+      let armBCorrect = false;
+      let armBRoute: LedgerEvent['route'] = 'forward_raw';
+      let armBCost = 0;
+      let armBInTokens = 0;
+      let armBOutTokens = 0;
+
+      if (hasCloud) {
+        // 2. Calculate All-Cloud Baseline (Arm A)
+        let rawCache = readCache(task.id, 'raw');
+        if (!rawCache) {
+          const { answer, reqId, error, cost, inTokens, outTokens } = await callLlmGate(task.prompt, 'raw');
+          rawCache = {
+            promptVersion: CONFIG.PROMPT_VERSION,
+            slmModel: CONFIG.SLM_BRAIN_MODEL,
+            apiModel: CONFIG.CLOUD_MODEL || 'unknown',
+            taskId: task.id,
+            route: 'raw',
+            answer,
+            inTokens: inTokens || 0,
+            outTokens: outTokens || 0,
+            cost: cost || 0,
+            ts: new Date().toISOString(),
+            error
+          };
+          writeCache(task.id, 'raw', rawCache);
+        }
+        apiCorrect = gradeAnswer(task, rawCache.answer) && !rawCache.error;
+        apiCost = rawCache.cost;
+        apiInTokens = rawCache.inTokens || 0;
+        apiOutTokens = rawCache.outTokens || 0;
+        if (rawCache.error) errorCount++;
+
+        // 3. Evaluate the Router logic (Arm B)
+        let autoCache = readCache(task.id, 'auto');
+        if (!autoCache) {
+          const { answer, reqId, error, cost, inTokens, outTokens, route } = await callLlmGate(task.prompt, 'auto');
+          autoCache = {
+            promptVersion: CONFIG.PROMPT_VERSION,
+            slmModel: CONFIG.SLM_BRAIN_MODEL,
+            apiModel: CONFIG.CLOUD_MODEL || 'unknown',
+            taskId: task.id,
+            route: 'auto',
+            answer,
+            inTokens: inTokens || 0,
+            outTokens: outTokens || 0,
+            cost: cost || 0,
+            ts: new Date().toISOString(),
+            error,
+            armBRoute: route || 'forward_raw'
+          };
+          writeCache(task.id, 'auto', autoCache);
+        }
+        armBCorrect = gradeAnswer(task, autoCache.answer) && !autoCache.error;
+        armBCost = autoCache.cost;
+        armBInTokens = autoCache.inTokens || 0;
+        armBOutTokens = autoCache.outTokens || 0;
+        armBRoute = autoCache.armBRoute || 'forward_raw';
+        if (autoCache.error) errorCount++;
+      }
+
+      results.push({
+        taskId: task.id,
+        route: armBRoute,
+        slmCorrect,
+        apiCorrect,
+        armBCorrect,
+        armBRoute,
+        armBCost,
+        apiCost,
+        armBInTokens,
+        armBOutTokens,
+        apiInTokens,
+        apiOutTokens
+      });
+      
+      completed++;
+    }));
+    
+    console.log(`[${completed}/${tasksToRun.length}] Processed tasks...`);
+  }
+
+  const arms = deriveArms(results);
+  writeReport(path.join(OUTPUT_DIR, 'leaderboard.md'), arms, hasCloud, tasksToRun.length, errorCount);
+
+  if (hasCloud) {
+    const svgStr = renderSvg(arms.allSlm, arms.armA, arms.armB, arms.randomAtF, arms.oracleAtF);
+    fs.writeFileSync(path.join(OUTPUT_DIR, 'deferral_curve.svg'), svgStr);
+    console.log('Wrote output/deferral_curve.svg');
+  }
+  
+  console.log('Wrote output/leaderboard.md');
+  if (errorCount > 0) {
+    console.log(`NOTE: ${errorCount} tasks encountered errors (timeouts/crashes) and were graded as incorrect.`);
+  }
+}
+
+if (process.env.NODE_ENV !== 'test') {
+  run().catch(err => {
+    console.error('Harness run failed:', err);
+    process.exit(1);
+  });
+}
+
+export { CacheEntry, getCachePath, readCache, writeCache };

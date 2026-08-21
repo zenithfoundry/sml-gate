@@ -1,15 +1,22 @@
 export const PRICING: Record<string, { in: number; out: number }> = {
   // USD per 1,000,000 tokens
   // OpenAI
-  'gpt-4o': { in: 5, out: 15 },
-  'gpt-4o-mini': { in: 0.150, out: 0.600 },
+  'gpt-5.6-sol': { in: 5, out: 30 },
+  'gpt-5.6-luna': { in: 0.20, out: 1.20 },
   
   // Anthropic
-  'claude-3-5-sonnet-20240620': { in: 3, out: 15 },
+  'claude-sonnet-5': { in: 2, out: 10 },
   
   // Gemini
-  'gemini-1.5-pro': { in: 3.5, out: 10.5 },
-  'gemini-1.5-flash': { in: 0.075, out: 0.3 },
+  'gemini-3.7-flash': { in: 0.75, out: 3.75 },
+  'gemini-3.6-flash': { in: 0.75, out: 3.75 },
+  'gemini-3.5-flash': { in: 1.50, out: 9.00 },
+  'gemini-3.5-flash-lite': { in: 0.30, out: 2.50 },
+  'gemini-3.1-pro-preview': { in: 2.00, out: 12.00 },
+  'gemini-2.5-pro': { in: 1.25, out: 10.00 },
+  'gemini-2.5-flash': { in: 0.30, out: 2.50 },
+  'gemini-2.5-flash-lite': { in: 0.10, out: 0.40 },
+  'gemini-2.5-flash-free': { in: 0, out: 0 }, // For free tier usage
   
   // To add more models, add their exact model ID strings here.
 };

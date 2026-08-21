@@ -97,6 +97,7 @@ export const server = http.createServer(async (req, res) => {
     writeEvent(event);
 
     res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('x-correlation-id', reqId);
 
     if (internalReq.stream) {
       res.setHeader('Content-Type', 'text/event-stream');

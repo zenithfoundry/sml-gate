@@ -4,7 +4,7 @@ import { parseAnthropicRequest, buildAnthropicRequest } from '../../src/llm-gate
 describe('OpenAI Format', () => {
   it('parses inbound and serializes outbound with stream usage flag', () => {
     const raw = {
-      model: 'gpt-4o',
+      model: 'gpt-5.6-sol',
       messages: [
         { role: 'system', content: 'You are an AI.' },
         { role: 'user', content: 'Hello!' }
@@ -19,7 +19,7 @@ describe('OpenAI Format', () => {
     expect(internal.stream).toBe(true);
 
     const outbound = buildOpenAIRequest(internal);
-    expect(outbound.model).toBe('gpt-4o');
+    expect(outbound.model).toBe('gpt-5.6-sol');
     expect(outbound.messages).toEqual([
       { role: 'system', content: 'You are an AI.' },
       { role: 'user', content: 'Hello!' }

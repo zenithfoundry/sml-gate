@@ -1,7 +1,7 @@
 import { config } from 'dotenv';
-import { z } from 'zod';
-import { fileURLToPath } from 'url';
 import path from 'path';
+import { fileURLToPath } from 'url';
+import { z } from 'zod';
 
 // Load .env (if it exists) into process.env. Does not crash if missing.
 config();
@@ -44,7 +44,7 @@ const envSchema = z.object({
   SLM_GATE_MODEL: z.string().optional(),  // resolved below
   NUM_CTX: parseInteger(16384),
   TEMPERATURE: parseFloatNumber(0),
-  SLM_TIMEOUT_MS: parseInteger(20000),
+  SLM_TIMEOUT_MS: parseInteger(30000),
   SELF_CONSISTENCY_K: parseInteger(3),
   SELF_CONSISTENCY_TEMP: parseFloatNumber(0.7),
 
@@ -114,7 +114,7 @@ export function requireKeys(keys: Array<keyof typeof CONFIG>) {
   }
 }
 
-// Config test script executed via `npm run config`
+// Config test script executed via `pnpm run config`
 if (import.meta.url === `file://${process.argv[1]}` || import.meta.url === `file://${path.resolve(process.argv[1])}`) {
   console.log('=== SMALL-LANGUAGE-MODEL-GATE CONFIGURATION ===');
   

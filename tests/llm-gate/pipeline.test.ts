@@ -13,7 +13,7 @@ jest.unstable_mockModule('../../src/config.js', () => ({
   CONFIG: {
     SLM_BRAIN_MODEL: 'qwen-test',
     SLM_GATE_MODEL: 'qwen-gate-test',
-    CLOUD_MODEL: 'gpt-4o',
+    CLOUD_MODEL: 'gpt-5.6-sol',
     CLOUD_API_STYLE: 'openai',
     HEADLINE_STRICTNESS: 1,
     TEMPERATURE: 0,
@@ -30,7 +30,7 @@ describe('Pipeline', () => {
     const { processPipeline } = await import('../../src/llm-gate/pipeline.js');
     
     const req: InternalRequest = {
-      model: 'gpt-4',
+      model: 'gpt-5.6-sol',
       messages: [{ role: 'user', content: 'What is 2+2?' }]
     };
 
@@ -54,7 +54,7 @@ describe('Pipeline', () => {
     })) as any;
 
     const req: InternalRequest = {
-      model: 'gpt-4',
+      model: 'gpt-5.6-sol',
       messages: [{ role: 'user', content: 'Complex question' }]
     };
 

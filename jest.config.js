@@ -16,7 +16,8 @@ export default {
         tsconfig: {
           module: 'NodeNext',
           moduleResolution: 'NodeNext',
-          target: 'ES2022'
+          target: 'ES2022',
+          rootDir: '.'
         }
       },
     ],

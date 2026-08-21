@@ -47,7 +47,8 @@ export class SLM {
             messages: [{ role: 'user', content: prompt }],
             temperature: temp,
             response_format: { type: "json_schema", json_schema: { name: "response", schema: jsonSchema } }
-          })
+          }),
+          signal: AbortSignal.timeout(CONFIG.SLM_TIMEOUT_MS)
         });
         
         if (!response.ok) {
@@ -123,7 +124,8 @@ export class SLM {
           model,
           messages,
           temperature
-        })
+        }),
+        signal: AbortSignal.timeout(CONFIG.SLM_TIMEOUT_MS)
       });
       if (!response.ok) {
         throw new Error(`OpenAI API error: ${response.statusText}`);
