@@ -68,6 +68,12 @@ export function getDb(): Database.Database {
         value TEXT,
         ts TEXT
       );
+
+      CREATE TABLE IF NOT EXISTS langfuse_queue (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        payload TEXT,
+        synced INTEGER DEFAULT 0
+      );
     `);
   }
   return db;
@@ -126,6 +132,40 @@ export function cacheSet(key: string, value: string) {
   statement.run(key, value, new Date().toISOString());
 }
 
+export interface LangfuseQueuePayload {
+  trace: {
+    id: string;
+    sessionId?: string | null;
+    tags: string[];
+    metadata?: Record<string, unknown>;
+    name: string;
+  };
+  generation?: {
+    name: string;
+    model: string;
+    usage: {
+      input: number;
+      output: number;
+    };
+    startTime: string;
+    endTime: string;
+    metadata: { cost_usd: number };
+  };
+  span?: {
+    name: string;
+    startTime: string;
+    endTime: string;
+    metadata: {
+      model: string;
+      usage: {
+        input: number;
+        output: number;
+      };
+      cost_usd: number;
+    };
+  };
+}
+
 export class LangfuseSink {
   static getClient(): Langfuse | null {
     if (langfuse) return langfuse;
@@ -141,39 +181,36 @@ export class LangfuseSink {
   }
 
   static mirrorEvent(e: LedgerEvent) {
-    const client = LangfuseSink.getClient();
-    if (!client) return;
-
     try {
-      const trace = client.trace({
-        id: e.request_id,
-        sessionId: e.session_id,
-        tags: [e.slm_gate === 'on' ? 'slm_gate=on' : 'slm_gate=off'],
-        metadata: e.meta ? JSON.parse(e.meta) : undefined,
-        name: e.skill || 'request',
-      });
+      const payload: LangfuseQueuePayload = {
+        trace: {
+          id: e.request_id,
+          sessionId: e.session_id,
+          tags: [e.slm_gate === 'on' ? 'slm_gate=on' : 'slm_gate=off'],
+          metadata: e.meta ? JSON.parse(e.meta) : undefined,
+          name: e.skill || 'request',
+        }
+      };
 
-      // API model call tracking (costs $)
       if (e.api_model && (e.api_in_tok > 0 || e.api_out_tok > 0)) {
-        trace.generation({
+        payload.generation = {
           name: 'api_call',
           model: e.api_model,
           usage: {
             input: e.api_in_tok,
             output: e.api_out_tok,
           },
-          startTime: new Date(new Date(e.ts).getTime() - e.api_latency_s * 1000),
-          endTime: new Date(e.ts),
+          startTime: new Date(new Date(e.ts).getTime() - e.api_latency_s * 1000).toISOString(),
+          endTime: new Date(e.ts).toISOString(),
           metadata: { cost_usd: e.cost_usd },
-        });
+        };
       }
 
-      // SLM model call tracking ($0)
       if (e.slm_model && (e.in_tok > 0 || e.out_tok > 0)) {
-        trace.span({
+        payload.span = {
           name: 'local_slm_call',
-          startTime: new Date(new Date(e.ts).getTime() - (e.api_latency_s + e.slm_latency_s) * 1000),
-          endTime: new Date(new Date(e.ts).getTime() - e.api_latency_s * 1000),
+          startTime: new Date(new Date(e.ts).getTime() - (e.api_latency_s + e.slm_latency_s) * 1000).toISOString(),
+          endTime: new Date(new Date(e.ts).getTime() - e.api_latency_s * 1000).toISOString(),
           metadata: {
             model: e.slm_model,
             usage: {
@@ -182,12 +219,55 @@ export class LangfuseSink {
             },
             cost_usd: 0,
           },
-        });
+        };
       }
+
+      const statement = getDb().prepare('INSERT INTO langfuse_queue (payload) VALUES (?)');
+      statement.run(JSON.stringify(payload));
     } catch (err) {
-      // Best effort mirroring
-      console.error('Langfuse mirror failed:', err);
+      console.error('Failed to queue langfuse event:', err);
     }
+  }
+
+  static async flushQueue() {
+    const client = LangfuseSink.getClient();
+    if (!client) return;
+    
+    const db = getDb();
+    const rows = db.prepare('SELECT id, payload FROM langfuse_queue WHERE synced = 0 LIMIT 50').all() as {id: number, payload: string}[];
+    
+    if (rows.length === 0) return;
+    
+    for (const row of rows) {
+      try {
+        const payload = JSON.parse(row.payload) as LangfuseQueuePayload;
+        
+        const trace = client.trace(payload.trace);
+        
+        if (payload.generation) {
+          const genPayload = { 
+            ...payload.generation,
+            startTime: new Date(payload.generation.startTime),
+            endTime: new Date(payload.generation.endTime)
+          };
+          trace.generation(genPayload);
+        }
+        if (payload.span) {
+          const spanPayload = { 
+            ...payload.span,
+            startTime: new Date(payload.span.startTime),
+            endTime: new Date(payload.span.endTime)
+          };
+          trace.span(spanPayload);
+        }
+        
+        db.prepare('DELETE FROM langfuse_queue WHERE id = ?').run(row.id);
+      } catch (err) {
+        console.error(`Failed to flush langfuse event ${row.id}:`, err);
+      }
+    }
+    
+    await client.flushAsync();
   }
 
   /**

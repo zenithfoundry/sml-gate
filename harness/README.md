@@ -88,6 +88,20 @@ Calling the cloud API is slow and costs real money. To fix this, answers are sav
 > 
 > The `--n` flag controls how many tasks to run. Start small (e.g., `--n 10`) before running the full suite!
 
+## Langfuse Dashboard Configurations
+
+### Evaluators
+To measure quality (`task_pass`, `gates_satisfied`), configure these in the Langfuse UI:
+1. Go to **Evaluators** -> **New Evaluator**.
+2. Select **LLM-as-a-Judge** or **Deterministic** (depending on your setup).
+3. For `task_pass`: Configure it to check if the final output contains a success indicator (or use an LLM prompt to grade).
+4. For `gates_satisfied`: Configure it to verify that the required context was preserved by the gate.
+
+### Monitors (Alerts)
+To get alerts for regressions, configure these in the Langfuse UI under **Monitors**:
+1. **Task Pass Drop Alert**: Trigger when `score_name="task_pass"` drops below `0.8`.
+2. **Cost Spike Alert**: Trigger when `cost` per turn is unexpectedly high (e.g., `> 0.05`).
+
 ## Troubleshooting
 
 - **"Only all_slm computed"**: You have no `CLOUD_*` key or model set in `.env`.

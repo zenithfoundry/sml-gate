@@ -17,13 +17,14 @@
     "mcp-gate:http": "tsx src/mcp-gate/index.ts",
     "smoke:mcp": "tsx scripts/smoke-mcp.ts",
     "bench": "tsx harness/run.ts",
-    "bench:reset": "rm -rf harness/.cache && pnpm run bench"
+    "bench:reset": "rm -rf harness/.cache && pnpm run bench",
+    "metrics": "tsx harness/metrics.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
     "better-sqlite3": "^11.2.1",
     "dotenv": "^16.4.5",
-    "langfuse": "^3.19.0",
+    "langfuse": "^5.4.0",
     "ollama": "^0.5.8",
     "zod": "^3.23.8",
     "zod-to-json-schema": "^3.23.1"

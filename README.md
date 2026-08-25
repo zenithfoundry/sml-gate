@@ -51,3 +51,10 @@ Run the benchmark to generate a Leaderboard report:
 pnpm run bench
 ```
 *(You can also use `pnpm run bench:reset` to clear the cache and force a fresh run).*
+
+## Free Measurement Path
+
+The offline harness and Langfuse metrics integrations allow you to measure the cost and token reduction of the `slm-gate` using this "free" measurement path:
+1. Route the Tech Lead Stack (TLS) through `mcp-gate`.
+2. Re-run `TLS scripts/calibrate-skill-costs.ts`.
+3. Observe the per-skill p50 token drop, which occurs because `slm_gate` traces effectively compress `AnalyticsEvent.totalTokens`.
