@@ -68,8 +68,7 @@ overwrite, rename, or duplicate them.** `.env.example` is the single source of t
 ## 3. Tech stack & coding conventions
 
 - **TypeScript**, `"type": "module"`, `strict: true`, Node ≥ 20, ESM. Dev via `tsx`, build via `tsc` → `dist/`.
-  The offline analysis **harness is Python** (managed with `uv`) and is the _only_ Python; the two gates must
-  run without Python installed.
+  The offline analysis **harness is TypeScript**. The entire project is Node/TypeScript without any Python installed.
 - Dependencies: `@modelcontextprotocol/sdk`, `ollama`, `better-sqlite3`, `zod`, `dotenv`, one small HTTP lib
   for `llm-gate` (`hono` or `node:http`), and `langfuse` (kept optional at runtime). **Pin versions**; no
   `@latest` in committed configs.

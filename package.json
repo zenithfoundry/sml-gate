@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "type": "module",
   "description": "A decoupled local-SLM pre-processing and routing layer.",
+  "bin": {
+    "slm-gate": "./dist/cli.js"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/cli.ts",

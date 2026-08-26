@@ -45,8 +45,6 @@ export async function scan(rootUri: string): Promise<string> {
   if (await fileExists('yarn.lock')) detected.push('Yarn package manager');
   if (await fileExists('pnpm-lock.yaml')) detected.push('pnpm package manager');
   if (await fileExists('package-lock.json')) detected.push('npm package manager');
-  if (await fileExists('requirements.txt')) detected.push('Python (pip)');
-  if (await fileExists('pyproject.toml')) detected.push('Python (poetry/uv/etc)');
   if (await fileExists('Cargo.toml')) detected.push('Rust (Cargo)');
   if (await fileExists('go.mod')) detected.push('Go modules');
 

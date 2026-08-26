@@ -1,60 +1,95 @@
-# Small Language Model Gate
+# small-language-model-gate
 
-`small-language-model-gate` is a decoupled local-SLM pre-processing and routing layer that sits in front of a cloud LLM and works inside any MCP client. 
+`small-language-model-gate` (CLI: `slm-gate`) is a local AI routing and pre-processing layer designed to intercept easy, repetitive tasks with a small, free local model before they hit your expensive subscription or API-based cloud model. By compressing context, resolving simple prompts locally, and metering API usage, it dramatically reduces your cloud usage and protects your monthly quota.
 
-It provides two independently-runnable middleware layers plus one shared ledger:
+## The Two Cloud Models
 
-1. **`mcp-gate`**: A standard MCP proxy. A client connects to it; it optionally forwards to a downstream MCP server. It intercepts skill/prompt payloads and runs a local small model to **compress, ground, and disambiguate** them before they reach the cloud model.
-2. **`llm-gate`**: An OpenAI and Anthropic-compatible HTTP endpoint. A client points its model base URL at it. Per request, it **defers locally** (using the SLM + verifier) or **compresses and forwards** to the cloud, metering exact cloud token usage.
-3. **Ledger**: Every request from either layer writes one SQLite row and (optionally) one Langfuse v4 trace.
+This tool distinguishes explicitly between two different downstream LLM layers you might use:
 
-## The Value Proposition: Beating Subscription Rate Limits
+1. **Subscription Model (Your Editor):** 
+   - This is the model you pay a flat monthly fee for (e.g., Claude Pro in Claude Code, Gemini Advanced in Antigravity/Cursor). 
+   - `slm-gate` intercepts prompts bound for this model, compresses them, and answers basic tool usages locally to save you quota and turns. This usage is *not* dollar-metered because you already pay a flat fee.
+   
+2. **API Model (Metered):** 
+   - A pay-per-token endpoint you define via `CLOUD_*` environment variables.
+   - Used as a fallback when `llm-gate` encounters a complex prompt that the local model cannot confidently handle. Cost is metered to the penny in the local ledger.
 
-The headline metric of this project is **cost-at-equal-quality**. On API keys, cost is measured in dollars. However, on subscription plans (like ChatGPT Plus, Claude Pro, or Gemini Advanced), cost is measured in **tokens and turns**.
+---
 
-All major providers impose strict message or token limits over rolling 3-4 hour windows. When you are writing code or engaging in complex multi-turn chats, hitting this usage cap effectively halts your workflow. 
+## Quick Starts
 
-By routing "easy" tasks (like simple formatting, extraction, and boolean checks) to a local Small Language Model (SLM) running on your machine, `small-language-model-gate` shields your precious cloud tokens. 
+### 1. `mcp-gate` in front of Tech-Lead-Stack (Primary, Subscription-Friendly Path)
+This path sits between your IDE and the tech-lead-stack server. It intercepts tool payloads (like `read_file` or `execute_command`) and condenses them, meaning your Editor's subscription model receives far less token spam.
 
-**Real-World Impact (As of August 21, 2026):**
-If this gateway reduces your cloud token usage by **10%**, it effectively extends your active coding time by 10%. On a typical 4-hour rolling limit, that equates to gaining an extra **~24 minutes** of workflow time before you hit the provider's cap.
+1. Install tech-lead-stack and compile it (`pnpm run mcp:build`).
+2. Run `slm-gate serve --layer mcp`.
+3. In your `.env`, set `TLS_ADAPTER=on` and point `DOWNSTREAM_MCP` to the TLS build path.
+4. Add `slm-gate` to your editor (see `configs/` for client-specific snippets).
 
-### Provider Limit Research (August 2026)
-To illustrate this value, we actively track the rolling constraints of major subscription providers. Higher tiers (like Pro/Max/Ultra) increase the total *absolute* capacity of messages you can send, but they are all still strictly governed by rolling 3 to 5 hour blocks.
+### 2. Standalone `mcp-gate` (Condition Prompt Only)
+If you don't use tech-lead-stack, you can still use `mcp-gate` as a standalone MCP server that exposes a single `condition_prompt` tool.
 
-* **ChatGPT (OpenAI)**:
-  * **Plans:** Plus, Go
-  * **Constraint Window:** 3 hours
-  * **Limits:** 160 messages (using GPT-5.5 Instant) every 3 hours.
-* **Claude (Anthropic)**:
-  * **Plans:** Pro, Max (5x), Max (20x)
-  * **Constraint Window:** 5 hours
-  * **Limits:** Base Pro is ~45 messages every 5 hours. Max plans multiply this capacity (~225 to ~900 messages) but operate on the exact same 5-hour rolling reset window.
-* **Gemini (Google AI)**:
-  * **Plans:** Plus, Pro, Ultra
-  * **Constraint Window:** 5 hours (compute-based, factoring in prompt complexity)
-  * **Limits:** Refreshes every 5 hours until a weekly limit cap is reached. Prompts per day scale by tier (e.g., 100 for Pro, 500 for Ultra).
+1. Leave `DOWNSTREAM_MCP` blank in your `.env`.
+2. Run `slm-gate serve --layer mcp`.
+3. Add `slm-gate` as an MCP server to your editor.
 
-## Architecture
+### 3. `llm-gate` (Model Endpoint Override)
+For clients that allow overriding the base URL of the model itself (like Cursor, Cline, or Claude Code via `ANTHROPIC_BASE_URL`), `llm-gate` can intercept the chat stream.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for a deep dive into the routing logic, verifier system, and decoupling constraints.
+1. Run `slm-gate serve --layer llm`.
+2. Set your editor's API Base URL to `http://localhost:8787`.
+3. `llm-gate` will answer easy questions locally and route hard ones to your `CLOUD_MODEL`.
 
-## Offline Evaluation Harness
+---
 
-To ensure the router maintains high quality, this project includes a benchmark suite. The offline evaluation harness runs a dataset of tasks against three arms:
-- **Arm 1 (All SLM):** Forces local answers.
-- **Arm 2 (Arm A - All Cloud):** The baseline. Forces API cloud answers.
-- **Arm 3 (Arm B - Router):** The actual router logic (defers locally if confident, escalates if not).
+## Client Compatibility Matrix
 
-Run the benchmark to generate a Leaderboard report:
+| Client | Layer 1 (`mcp-gate`) | Layer 2 (`llm-gate`) | Notes |
+| :--- | :---: | :---: | :--- |
+| **Antigravity** | ✅ | ❌ | Antigravity uses a locked internal model; use mcp-gate. |
+| **Claude Code** | ✅ | ✅ | `ANTHROPIC_BASE_URL=http://localhost:8787`. Disables native Tool Search. |
+| **Cursor** | ✅ | ✅ | Override Base URL in Settings > Models. |
+| **Cline / Continue** | ✅ | ✅ | Configure via OpenAI-compatible endpoint. |
+| **Claude Desktop** | ✅ | ❌ | Stdio only for MCP. Cannot override internal Claude model. |
+
+---
+
+## Measurement & Telemetry
+
+The core promise of this tool is **cost-at-equal-quality**. 
+
+To prove this, `small-language-model-gate` logs every decision to a local SQLite ledger (and optionally Langfuse). You can view the true impact at any time using:
+
 ```bash
-pnpm run bench
+pnpm run slm-gate metrics
 ```
-*(You can also use `pnpm run bench:reset` to clear the cache and force a fresh run).*
 
-## Free Measurement Path
+This commands reads the local ledger and prints an offline comparison showing exactly how much quota/dollars you saved when the gate was ON vs OFF. It requires no API keys and is the source of truth for subscription users.
 
-The offline harness and Langfuse metrics integrations allow you to measure the cost and token reduction of the `slm-gate` using this "free" measurement path:
-1. Route the Tech Lead Stack (TLS) through `mcp-gate`.
-2. Re-run `TLS scripts/calibrate-skill-costs.ts`.
-3. Observe the per-skill p50 token drop, which occurs because `slm_gate` traces effectively compress `AnalyticsEvent.totalTokens`.
+*(For developers wanting to run systematic benchmarks, see `harness/README.md` and use `slm-gate bench`. Note: The harness requires a funded `CLOUD_API_KEY`.)*
+
+---
+
+## No-Ollama / Cloud Fallback
+
+If your machine cannot run Ollama, you can change `SLM_PROVIDER=openai` in your `.env`. This allows you to point `SLM_BRAIN_MODEL` and `SLM_GATE_MODEL` to a cheap, hosted model (e.g., `gpt-4o-mini` or `gemini-1.5-flash`). 
+
+*Caveat: Because hosted "small" models still cost money and incur network latency, the deferral savings are significantly lower than running locally, though compression will still save tokens.*
+
+---
+
+## Appendix C: RAM-by-Machine Model Table
+
+Selecting the right local models is crucial for performance. As a rule of thumb, you should configure your `.env` models based on your available system RAM.
+
+| RAM | Recommended Presets | Example Brain Models | Example Gate Models |
+| :--- | :--- | :--- | :--- |
+| **4 GB** | `ram-4` | qwen3.5:1.5b, phi3:mini, gemma2:2b | qwen3.5:0.5b, tinyllama |
+| **8 GB** | `ram-8` | qwen3.5:3b, llama3.2:3b | qwen3.5:0.5b, phi3:mini |
+| **16 GB** | `ram-16` | qwen3:7b, llama3:8b, mistral:7b | qwen3:1.7b, phi3:mini |
+| **24 GB** | `ram-24` | qwen3:14b, command-r:35b (Q4) | qwen3:1.7b, llama3.2:3b |
+| **32 GB** | `ram-32` | qwen3:14b, deepseek-coder:33b | qwen3:1.7b, llama3:8b |
+| **64 GB** | `ram-64` | qwen3:32b, llama3:70b (Q4) | qwen3:7b, mistral:7b |
+| **128 GB** | `ram-128` | qwen3:72b, command-r-plus:104b | qwen3:14b, llama3:8b |
+
+*Note: You must pull these models via `ollama pull <model_name>` before running `slm-gate serve`. Run `slm-gate doctor` to verify your environment!*
