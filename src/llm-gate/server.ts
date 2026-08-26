@@ -1,9 +1,9 @@
 import http from 'node:http';
-import { parseOpenAIRequest, formatOpenAIStreamChunk, OPENAI_STREAM_DONE } from './formats/openai.js';
-import { parseAnthropicRequest, formatAnthropicStreamChunk } from './formats/anthropic.js';
-import { processPipeline } from './pipeline.js';
-import { writeEvent, LedgerEvent } from '../ledger/index.js';
 import { CONFIG } from '../config.js';
+import { LedgerEvent, writeEvent } from '../ledger/index.js';
+import { formatAnthropicStreamChunk, parseAnthropicRequest } from './formats/anthropic.js';
+import { formatOpenAIStreamChunk, OPENAI_STREAM_DONE, parseOpenAIRequest } from './formats/openai.js';
+import { processPipeline } from './pipeline.js';
 
 function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -60,7 +60,9 @@ export const server = http.createServer(async (req, res) => {
   }
 
   try {
+    console.info('LLM Gate Server: Request started', path);
     const rawBody = await readBody(req);
+    console.info('LLM Gate Server: Body read');
     const body = JSON.parse(rawBody);
 
     const internalReq = inboundFormat === 'openai' 

@@ -9,14 +9,29 @@ const __dirname = path.dirname(__filename);
 const rootPath = path.resolve(__dirname, '..');
 
 /**
- * Executes a smoke test for the MCP gate to ensure it can successfully connect, 
- * expose the expected tools, and process a standard prompt conditioning task.
+ * @fileoverview
+ * End-to-End Test: Standalone MCP (`e2e:standalone-mcp`)
  * 
- * This test runs the `mcp-gate` in standalone mode (no downstream MCP) and verifies
- * that the `condition_prompt` tool is available and functioning correctly, including
- * the preservation of critical 'MUST' instructions during distillation.
+ * Expected Outcome:
+ * The test successfully connects to `mcp-gate` via stdio in standalone mode (i.e. with
+ * `DOWNSTREAM_MCP` unset). It verifies that ONLY the local `condition_prompt` tool is exposed,
+ * and that it correctly conditions a direct text input (with fluff and verbatim instructions) 
+ * without forwarding any requests to a downstream server.
  * 
- * @returns {Promise<void>} Resolves when the smoke test completes, or exits the process with a non-zero status on failure.
+ * Why this test is needed (Why it exists):
+ * This test guarantees that `mcp-gate` can function independently as a text-conditioning 
+ * tool when a user does not configure a downstream MCP. It protects against regressions 
+ * where the application might crash or fail to expose its core local tools if no proxy 
+ * target is provided.
+ * 
+ * Warning Expectations / Potential Flakiness:
+ * - Requires Ollama running locally with the target model.
+ * - Flakiness could occur if the prompt distillation takes too long and hits the timeout 
+ *   (`SLM_TIMEOUT_MS`). The local model's generative randomness could occasionally alter 
+ *   the text length, though the test checks for the presence of the `MUST` lines which 
+ *   should be strictly preserved.
+ * 
+ * @returns {Promise<void>} Resolves when the smoke test completes, or exits with non-zero on failure.
  */
 async function main() {
   console.log("Starting MCP Gate Smoke Test...");

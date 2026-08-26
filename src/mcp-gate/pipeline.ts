@@ -47,6 +47,7 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
   
   if (!slmClient) {
     slmClient = createSlmClient();
+    console.error(`[pipeline] Initialized SLM with OLLAMA_HOST=${CONFIG.OLLAMA_HOST}`);
   }
 
   // 1. Cache Check

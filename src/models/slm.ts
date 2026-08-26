@@ -9,7 +9,10 @@ function stripThinkTags(text: string): string {
 }
 
 export class SLM {
-  constructor(private client: Ollama = ollama) {}
+  private client: Ollama;
+  constructor(client?: Ollama) {
+    this.client = client || new Ollama({ host: CONFIG.OLLAMA_HOST });
+  }
 
   async generateJSON<T>(
     model: string,

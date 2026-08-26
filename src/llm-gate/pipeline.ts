@@ -64,6 +64,8 @@ export async function processPipeline(
   internalReq: InternalRequest,
   options: PipelineOptions
 ): Promise<PipelineResult> {
+  console.info('LLM Gate Pipeline: Started');
+
   const t0 = Date.now();
   const slm = new SLM();
   const messages = internalReq.messages;
