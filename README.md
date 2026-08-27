@@ -54,6 +54,28 @@ For clients that allow overriding the base URL of the model itself (like Cursor,
 
 ---
 
+## Verification & Day-to-Day Use (All Clients)
+
+**Cloud API Keys:** 
+When using `mcp-gate` (Layer 1) alongside your IDE's built-in subscription model (e.g., Claude Pro, Gemini Advanced, Cursor Pro), you **do not** need a `CLOUD_API_KEY` in your `.env`. The `CLOUD_*` variables are only required if you use Layer 2 (`llm-gate`) or run the offline testing harness (`slm-gate bench`). For Layer 1, the proxy relies 100% on the local Ollama models (`SLM_BRAIN_MODEL` and `SLM_GATE_MODEL`) to compress and filter payloads before they reach your editor. You can safely leave the cloud keys blank.
+
+**Build Readiness:**
+Out of the box (or after running `pnpm run test:e2e`), the build script runs automatically and `/dist/mcp-gate/index.js` is ready to use. *Note: If you modify the `.ts` source files, you must run `pnpm run build` again so your connected clients pick up the changes.*
+
+**How to verify the bridge is working day-to-day:**
+1. **Ledger Metrics (Universal):** Run `pnpm run slm-gate metrics` in your terminal anytime. Because `LEDGER_PATH` is set, every interception is recorded, showing exactly how many tokens the SLM stripped out.
+2. **Visual Clues (Universal):** When your client triggers a tool (like `get_skill`), the returned payload in the editor will be drastically shorter, but it will still explicitly contain the mandatory guidelines (e.g., lines starting with `MUST`, or YAML frontmatter).
+3. **MCP Server Logs (Client-Specific):** Look for `[pipeline] distill` in your client's MCP logs to confirm the local model is actively processing payloads:
+   - **Antigravity:** View the internal MCP logs via the Antigravity output tab.
+   - **Cursor:** Open the Output panel (`Ctrl/Cmd+Shift+U`) and select "MCP" or "Cursor" from the dropdown.
+   - **Claude Desktop:** 
+     - Mac: `tail -f ~/Library/Logs/Claude/mcp*.log`
+     - Windows: `type "%APPDATA%\Claude\logs\mcp*.log"`
+   - **Cline / VSCode:** Open the VSCode Output panel and select the "Cline" extension or the specific MCP server from the dropdown.
+   - **Claude Code:** Start Claude Code with the `--mcp-debug` flag to view detailed server communication in the terminal.
+
+---
+
 ## Measurement & Telemetry
 
 The core promise of this tool is **cost-at-equal-quality**. 
