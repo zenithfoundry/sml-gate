@@ -32,6 +32,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootPath = path.resolve(__dirname, '..');
 
+import { getE2EEnv } from "./ollama-helper.js";
+
 async function main() {
   console.log("Starting Distill Fallback Test...");
 
@@ -40,11 +42,10 @@ async function main() {
   const transport = new StdioClientTransport({
     command: 'node',
     args: [mcpGatePath],
-    env: {
-      ...process.env,
+    env: getE2EEnv({
       DOWNSTREAM_MCP: '', // Standalone mode
       SLM_TIMEOUT_MS: '1' // Force timeout
-    }
+    })
   });
 
   const client = new Client(

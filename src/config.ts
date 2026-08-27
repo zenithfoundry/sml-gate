@@ -115,7 +115,7 @@ export function requireKeys(keys: Array<keyof typeof CONFIG>) {
 }
 
 // Config test script executed via `pnpm run config`
-if (import.meta.url === `file://${process.argv[1]}` || import.meta.url === `file://${path.resolve(process.argv[1])}`) {
+if (process.argv[1] && (import.meta.url === `file://${process.argv[1]}` || import.meta.url === `file://${path.resolve(process.argv[1])}`)) {
   console.log('=== SMALL-LANGUAGE-MODEL-GATE CONFIGURATION ===');
   
   const redactedConfig = { ...CONFIG } as any;

@@ -32,14 +32,19 @@ const rootPath = path.resolve(__dirname, '..');
  * 
  * @returns {Promise<void>} Resolves when all test cases complete, or exits with non-zero on failure.
  */
+import { ensureOllamaReady, getE2EEnv, SLM_GATE_MODEL, SLM_BRAIN_MODEL } from "./ollama-helper.js";
+
 async function main(): Promise<void> {
   console.log("Starting MCP Gate Smoke Test...");
+
+  // Check Ollama readiness and mount models to prevent standby timeout
+  await ensureOllamaReady([SLM_GATE_MODEL, SLM_BRAIN_MODEL]);
 
   const transport = new StdioClientTransport({
     command: 'node',
     args: [path.join(rootPath, 'dist', 'mcp-gate', 'index.js')],
-    // Ensure DOWNSTREAM_MCP is unset so it runs in standalone mode
-    env: { ...process.env, DOWNSTREAM_MCP: '' }
+    // Pass environment with OLLAMA_HOST and SLM_TIMEOUT_MS configured
+    env: getE2EEnv({ DOWNSTREAM_MCP: '' })
   });
 
   const client = new Client(
@@ -96,7 +101,7 @@ End of skill.
           task: "Smoke test conditioning short prompt"
         }
       }
-    }, CallToolResultSchema);
+    }, CallToolResultSchema, { timeout: 300000 });
 
     const firstBlock1 = result1.content[0];
     const conditionedText1 = firstBlock1 && typeof firstBlock1 === 'object' && 'text' in firstBlock1 
@@ -133,21 +138,27 @@ End of skill.
   console.log("=========================================================================");
 
   const largeSkill = `
-# Comprehensive Architecture & Deployment Guidelines
+# Comprehensive Architecture & Enterprise Deployment Standard Operating Procedures
 
-## Introduction and Background Context
+## 1. Executive Summary & Historical Background
 In modern distributed cloud software systems, application architecture requires continuous adherence to quality attributes, scalability requirements, maintainability benchmarks, and enterprise reliability guidelines. When developers and agents interact with automated infrastructure workflows, there is often significant background history to consider regarding legacy configuration management, operational runbooks, infrastructure provisioning, and continuous deployment strategies. This historical context illustrates why engineering standards evolved over the past decade through various organizational iterations and architectural transitions across multiple infrastructure providers.
 
-## General Principles and Narrative Context
+Throughout the early phases of monolithic system evolution, cross-functional teams frequently struggled with coordination bottlenecks, brittle release pipelines, tightly coupled dependencies, and inconsistent deployment procedures. As software systems transitioned toward distributed microservices and decoupled event-driven architectures, organizations adopted diverse tooling ecosystems ranging from custom shell orchestration scripts to complex container orchestration runtimes. These architectural shifts introduced substantial operational complexity, requiring engineers to continuously balance deployment agility with governance, security compliance, performance guarantees, and fault tolerance.
+
+## 2. General Architectural Principles & Theoretical Frameworks
 It is generally recommended that engineers maintain clean documentation, organize files systematically, ensure code clarity across all modules, and practice good version control hygiene. While these recommendations serve as helpful advice across varied teams, they are primarily narrative context intended to guide architectural thinking. In many systems, teams spend considerable time debating conventions, file directory structures, naming schemes, database migration schedules, and deployment timeframes. Many architectural discussions delve deeply into theoretical trade-offs that have little direct bearing on immediate execution tasks.
 
-## Mandatory Implementation Requirements
+Furthermore, software maintainability is heavily influenced by cognitive load and architectural legibility. When design systems become overly convoluted or burdened with superfluous abstractions, downstream development velocity decreases and troubleshooting latency increases. Engineers are encouraged to adopt modular design paradigms, minimize circular dependencies, prioritize interface contracts over implementation coupling, and establish clear boundary contexts between domain entities.
+
+## 3. Mandatory Implementation Requirements
 You MUST adhere strictly to the target environment security constraints.
 You MUST never commit plain-text credentials or API secrets to version control.
 You MUST write unit tests with at least 80% branch coverage for all core services.
 
-## Operational Procedures and Workflow Details
+## 4. Operational Procedures and Workflow Execution
 When initiating a build sequence, several preparatory checks should be conducted. First, ensure that local package dependencies are synchronized across the developer environment. Second, inspect the workspace tree for uncommitted artifacts or transient cache directories that might pollute build outputs. Third, review the active branch to confirm it is branched from the latest main tracking branch. Fourth, verify that environmental prerequisites, including runtime engines and container runtimes, are actively running in the host environment. Furthermore, ensure that telemetry sinks are available if distributed tracing is activated.
+
+During pipeline execution, intermediate build artifacts must be validated against deterministic checksums to guarantee repeatability across staging and production clusters. Continuous integration runners should enforce static analysis gates, linting checks, type-checking passes, and automated vulnerability scanning before proceeding to container image generation.
 
 \`\`\`typescript
 export function initializeService(config: { serviceName: string; port: number }): void {
@@ -155,8 +166,11 @@ export function initializeService(config: { serviceName: string; port: number })
 }
 \`\`\`
 
-## Final Checklist
-Always review the deployment log output before promoting a release to staging environments. Ensure all stakeholders are notified of maintenance windows.
+## 5. Multi-Region Deployment and Disaster Recovery Considerations
+High-availability architectures typically employ active-passive or active-active multi-region deployment topologies to mitigate regional infrastructure outages. Data replication topologies, latency routing policies, global load balancer health probes, and automated DNS failover mechanisms must be periodically tested via simulated failure drills. Team members should maintain familiarity with runbooks covering database point-in-time recovery, partition healing procedures, cache invalidation storms, and traffic shedding algorithms.
+
+## 6. Observability, Telemetry & Post-Deployment Checklist
+Always review the deployment log output before promoting a release to staging environments. Ensure all stakeholders are notified of maintenance windows. Collect structured metrics regarding request throughput, error rates, p99 latency distributions, and saturation levels across computing nodes.
 `;
 
   const largeLength = largeSkill.length;
@@ -172,7 +186,7 @@ Always review the deployment log output before promoting a release to staging en
           task: "Deploy core authentication service according to architecture guidelines"
         }
       }
-    }, CallToolResultSchema);
+    }, CallToolResultSchema, { timeout: 300000 });
 
     const firstBlock2 = result2.content[0];
     const conditionedText2 = firstBlock2 && typeof firstBlock2 === 'object' && 'text' in firstBlock2 
@@ -210,8 +224,8 @@ Always review the deployment log output before promoting a release to staging en
     }
     console.log("PASS: All MUST lines present verbatim.");
 
-    if (!conditionedText2.includes("## Mandatory Implementation Requirements")) {
-      console.error("FAIL: Heading '## Mandatory Implementation Requirements' missing verbatim.");
+    if (!conditionedText2.includes("## 3. Mandatory Implementation Requirements")) {
+      console.error("FAIL: Heading '## 3. Mandatory Implementation Requirements' missing verbatim.");
       process.exit(1);
     }
     console.log("PASS: Heading preserved verbatim.");

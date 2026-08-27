@@ -132,6 +132,13 @@ export async function distill(
     finalText = finalText.replace(placeholder, originalLine);
   }
 
+  // Re-insert any preserved lines whose placeholder was omitted by the SLM
+  for (const [, originalLine] of preserved.entries()) {
+    if (!finalText.includes(originalLine)) {
+      finalText += `\n${originalLine}`;
+    }
+  }
+
   // Assert every preserved line is actually in the final output
   let allPreserved = true;
   for (const originalLine of preserved.values()) {

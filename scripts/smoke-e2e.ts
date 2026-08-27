@@ -37,6 +37,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootPath = path.resolve(__dirname, '..');
 
+import { ensureOllamaReady, getE2EEnv, SLM_GATE_MODEL, SLM_BRAIN_MODEL } from "./ollama-helper.js";
+
 // 1. Fake downstream server mode
 if (process.argv[2] === '--fake-downstream') {
   const server = new Server(
@@ -88,6 +90,9 @@ else {
   async function runTest() {
     console.log("Starting E2E Smoke Test...");
     
+    // Check Ollama readiness and warm up models to avoid standby delays
+    await ensureOllamaReady([SLM_GATE_MODEL, SLM_BRAIN_MODEL]);
+
     const mcpGatePath = path.join(rootPath, 'dist', 'mcp-gate', 'index.js');
     if (!fs.existsSync(mcpGatePath)) {
       console.error(`FAIL: ${mcpGatePath} not found.`);
@@ -96,12 +101,11 @@ else {
     }
 
     // Force use of the fake downstream server for E2E tests
-    const env: Record<string, string> = Object.fromEntries(
-      Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)
-    );
-    env.DOWNSTREAM_MCP = JSON.stringify({
-      command: "tsx",
-      args: [__filename, "--fake-downstream"]
+    const env = getE2EEnv({
+      DOWNSTREAM_MCP: JSON.stringify({
+        command: "tsx",
+        args: [__filename, "--fake-downstream"]
+      })
     });
     console.log("Using in-process FAKE downstream MCP server.");
 
@@ -144,7 +148,7 @@ else {
             task: "Smoke test e2e conditioning"
           }
         }
-      }, CallToolResultSchema);
+      }, CallToolResultSchema, { timeout: 300000 });
 
       const conditionedText = String((result.content[0] as any).text);
       console.log("\nConditioned output length:", conditionedText.length);

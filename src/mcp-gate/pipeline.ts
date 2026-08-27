@@ -63,7 +63,7 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
   // 2. Distill
   const slmFunc = async (t: string, taskDesc?: string) => {
     // Generate text completion for compression
-    const prompt = `Task: ${taskDesc || 'None'}\\nCompress this content while keeping instructions clear:\\n${t}`;
+    const prompt = `You are an expert prompt compression assistant. Your task is to compress and summarize the non-preserved narrative text below into concise points.\n\nRules:\n1. You MUST keep all ⟦PRESERVE_*⟧ tokens intact and verbatim in their exact locations.\n2. Summarize and condense the surrounding text while keeping instructions clear.\n\nTask Context: ${taskDesc || 'None'}\n\nText to compress:\n${t}`;
     return slmClient.generateText(CONFIG.SLM_GATE_MODEL, [{ role: 'user', content: prompt }]);
   };
   
@@ -170,8 +170,10 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
     slm_gate: 'on'
   });
 
-  // 6. Cache Set
-  cacheSet(cacheKey, conditioned);
+  // 6. Cache Set (only cache successful non-timed-out responses)
+  if (!distillTimeoutFlag && !resolverTimeoutFlag) {
+    cacheSet(cacheKey, conditioned);
+  }
 
   return conditioned;
 }
