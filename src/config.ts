@@ -43,7 +43,7 @@ const envSchema = z.object({
   OLLAMA_KEEP_ALIVE: z.string().default('12h'),
   SLM_BRAIN_MODEL: z.string().optional(), // resolved below
   SLM_GATE_MODEL: z.string().optional(),  // resolved below
-  NUM_CTX: parseInteger(16384),
+  NUM_CTX: parseInteger(8192),
   TEMPERATURE: parseFloatNumber(0),
   SLM_TIMEOUT_MS: parseInteger(30000),
   SELF_CONSISTENCY_K: parseInteger(3),

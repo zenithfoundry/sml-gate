@@ -130,4 +130,8 @@ launchctl setenv OLLAMA_MAX_LOADED_MODELS 2
 export OLLAMA_MAX_LOADED_MODELS=2
 ```
 
+> **Note on Hardware Limits:** When loading two models simultaneously, Ollama must allocate VRAM for both models' KV caches. On Apple Silicon, GPU memory allocation is strictly capped. If you experience models being evicted (one model unloading to make room for another), you must lower your `NUM_CTX` in your `.env`. 
+> - **24GB Mac**: `NUM_CTX=8192` is recommended to fit both models.
+> - **16GB Mac**: `NUM_CTX=4096` is recommended to fit both models.
+
 *Note: You must pull these models via `ollama pull <model_name>` before running `slm-gate serve`. Run `slm-gate doctor` to verify your environment!*
