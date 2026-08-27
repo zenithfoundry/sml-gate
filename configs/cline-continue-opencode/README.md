@@ -1,8 +1,6 @@
-# Cline / Continue / OpenCode Configuration
+# Cline / Continue / Opencode MCP Configuration
 
-These clients typically manage MCP configurations in a central `mcp_settings.json` or similar configuration file (e.g., `~/.config/cline/mcp_settings.json`).
-
-Update the configuration file to include `slm-gate`:
+**File Location:** `cline_mcp.json` or `.continue/config.json` (depends on client, usually at the global or project root)
 
 ```json
 {
@@ -10,23 +8,16 @@ Update the configuration file to include `slm-gate`:
     "slm-gate": {
       "command": "node",
       "args": [
-        "/absolute/path/to/small-language-model-gate/dist/mcp-gate/index.js"
+        "<ABS_PATH>/dist/mcp-gate/index.js"
       ],
-      "env": {}
+      "env": {
+        "TLS_ADAPTER": "on",
+        "DOWNSTREAM_MCP": "{\"command\":\"node\",\"args\":[\"<ABS_PATH_TO_TLS>/dist/mcp-server.mjs\"]}",
+        "CLOUD_API_KEY": "${CLOUD_API_KEY}"
+      }
     }
   }
 }
 ```
 
-## LLM-Gate Setup
-
-To use `llm-gate` as the primary LLM provider for these clients:
-1. In the client's provider settings, select "OpenAI Compatible" or custom endpoint.
-2. Set the Base URL to `http://localhost:8787`.
-3. Provide any dummy API key if required.
-
-## Next Steps
-
-1. Copy the `.env.16gb.example` or `.env.24gb.example` file to your project root as `.env`.
-2. Configure your local models.
-3. Restart the client extension.
+After adding this, restart/refresh MCP servers and verify with `slm-gate doctor`.

@@ -1,11 +1,8 @@
-# Claude Desktop Configuration
+# Claude Desktop MCP Configuration
 
-Claude Desktop manages MCP servers via its configuration file, typically located at `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS or `%APPDATA%\Claude\claude_desktop_config.json` on Windows.
-
-> [!IMPORTANT]
-> Claude Desktop only supports the `stdio` transport.
-
-Update the configuration file to include `slm-gate`:
+**File Location:** 
+- Mac: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\\Claude\\claude_desktop_config.json`
 
 ```json
 {
@@ -13,15 +10,16 @@ Update the configuration file to include `slm-gate`:
     "slm-gate": {
       "command": "node",
       "args": [
-        "/absolute/path/to/small-language-model-gate/dist/mcp-gate/index.js"
-      ]
+        "<ABS_PATH>/dist/mcp-gate/index.js"
+      ],
+      "env": {
+        "TLS_ADAPTER": "on",
+        "DOWNSTREAM_MCP": "{\"command\":\"node\",\"args\":[\"<ABS_PATH_TO_TLS>/dist/mcp-server.mjs\"]}",
+        "CLOUD_API_KEY": "${CLOUD_API_KEY}"
+      }
     }
   }
 }
 ```
 
-## Next Steps
-
-1. Copy the `.env.16gb.example` or `.env.24gb.example` file to your project root as `.env`.
-2. Configure your local models.
-3. Restart the Claude Desktop application.
+After adding this, restart/refresh MCP servers and verify with `slm-gate doctor`.

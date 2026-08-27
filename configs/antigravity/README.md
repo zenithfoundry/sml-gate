@@ -1,10 +1,8 @@
-# Antigravity Configuration
+# Antigravity MCP Configuration
 
-Antigravity stores its MCP configuration in `~/.gemini/config/mcp_config.json`.
+Antigravity requires you to configure MCP servers in its global configuration file. Note that a REMOTE server (like HTTP) uses `serverUrl`, not `url`. Below is the configuration for `slm-gate` using `stdio`.
 
-Update the configuration file to include `slm-gate`. Note that Antigravity uses `serverUrl` for HTTP endpoints and `command` for stdio.
-
-### Stdio Configuration (Recommended)
+**File Location:** `~/.gemini/config/mcp_config.json`
 
 ```json
 {
@@ -12,29 +10,16 @@ Update the configuration file to include `slm-gate`. Note that Antigravity uses 
     "slm-gate": {
       "command": "node",
       "args": [
-        "/absolute/path/to/small-language-model-gate/dist/mcp-gate/index.js"
-      ]
+        "<ABS_PATH>/dist/mcp-gate/index.js"
+      ],
+      "env": {
+        "TLS_ADAPTER": "on",
+        "DOWNSTREAM_MCP": "{\"command\":\"node\",\"args\":[\"<ABS_PATH_TO_TLS>/dist/mcp-server.mjs\"]}",
+        "CLOUD_API_KEY": "${CLOUD_API_KEY}"
+      }
     }
   }
 }
 ```
 
-### HTTP Configuration
-
-If you're running the gate over HTTP (by passing `--transport http` to `serve`):
-
-```json
-{
-  "mcpServers": {
-    "slm-gate": {
-      "serverUrl": "http://localhost:8788/mcp"
-    }
-  }
-}
-```
-
-## Next Steps
-
-1. Copy the `.env.16gb.example` or `.env.24gb.example` file to your project root as `.env`.
-2. Configure your local models.
-3. Restart Antigravity or trigger a tools reload.
+After adding this, restart/refresh MCP servers and verify with `slm-gate doctor`.

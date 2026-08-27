@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { SLM } from './slm.js';
 import { roles } from './roles.js';
-import { ClassifyCategory, withSlmTimeout } from './types.js';
+import { ClassifyCategory } from './types.js';
+import { withSlmTimeout } from './helpers.js';
 import { CONFIG } from '../config.js';
 
 export function checkAgreement<T>(samples: T[]): T | null {

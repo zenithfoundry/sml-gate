@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { SLM } from '../../src/models/slm.js';
-import { SlmFormatError } from '../../src/models/types.js';
+import { SlmFormatError } from '../../src/models/helpers.js';
 import { checkAgreement, selfConsistency } from '../../src/models/reasoning.js';
 import { Ollama } from 'ollama';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';

@@ -10,8 +10,13 @@ import { LangfuseSink } from '../ledger/index.js';
  */
 
 if (import.meta.url === `file://${process.argv[1]}`) {
+  const sinks = ['sqlite'];
+  if (CONFIG.LANGFUSE_PUBLIC_KEY && CONFIG.LANGFUSE_SECRET_KEY && CONFIG.LANGFUSE_HOST) {
+    sinks.push('langfuse');
+  }
+
   server.listen(CONFIG.LLM_GATE_PORT, () => {
-    console.error(`LLM Gate running on port ${CONFIG.LLM_GATE_PORT} (inbound: ${CONFIG.LLM_GATE_EXPOSE.join(', ')})`);
+    console.error(`LLM Gate running on port ${CONFIG.LLM_GATE_PORT} (inbound: ${CONFIG.LLM_GATE_EXPOSE.join(', ')}). sinks: [${sinks.join(', ')}]`);
   });
 
   // Start background flush for Langfuse offline queue

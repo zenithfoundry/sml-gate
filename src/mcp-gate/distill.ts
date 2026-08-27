@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import { CONFIG } from '../config.js';
-import { withSlmTimeout } from '../models/types.js';
+import { withSlmTimeout } from '../models/helpers.js';
 
 export const BUILTIN_PATTERNS: RegExp[] = [
   // requirement keywords
@@ -132,12 +132,7 @@ export async function distill(
     finalText = finalText.replace(placeholder, originalLine);
   }
 
-  // Re-insert any preserved lines whose placeholder was omitted by the SLM
-  for (const [, originalLine] of preserved.entries()) {
-    if (!finalText.includes(originalLine)) {
-      finalText += `\n${originalLine}`;
-    }
-  }
+
 
   // Assert every preserved line is actually in the final output
   let allPreserved = true;

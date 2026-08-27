@@ -1,4 +1,5 @@
 import { CONFIG } from '../config.js';
+import { handleSlmError } from '../models/helpers.js';
 import { LedgerEvent } from '../ledger/index.js';
 import { classify } from '../models/reasoning.js';
 import { SLM } from '../models/slm.js';
@@ -135,7 +136,12 @@ export async function processPipeline(
           localDeferred = true;
           localAnswer = answer;
         }
-      } catch (e) {
+      } catch (e: any) {
+        if (e.name === 'SlmTimeoutError' || e.message?.includes('fetch failed') || e.code === 'ECONNREFUSED' || e.message?.includes('ECONNREFUSED')) {
+          handleSlmError(e, 'llm-gate:generate', localModel);
+        } else {
+          handleSlmError(e, 'llm-gate:generate', localModel);
+        }
         // Local generation failed, fall through to escalate
       }
     }

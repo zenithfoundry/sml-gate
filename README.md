@@ -2,6 +2,12 @@
 
 `small-language-model-gate` (CLI: `slm-gate`) is a local AI routing and pre-processing layer designed to intercept easy, repetitive tasks with a small, free local model before they hit your expensive subscription or API-based cloud model. By compressing context, resolving simple prompts locally, and metering API usage, it dramatically reduces your cloud usage and protects your monthly quota.
 
+## Prerequisites
+
+- **Ollama**: This project does not ship or maintain an install script for Ollama, as system dependencies vary. Please install Ollama from [ollama.com](https://ollama.com/) and ensure it is running at `http://localhost:11434`.
+- **Local Models**: You must manually pull the models suitable for your system's RAM. Refer to [Appendix C: RAM-by-Machine Model Table](#appendix-c-ram-by-machine-model-table) to choose your `SLM_BRAIN_MODEL` and `SLM_GATE_MODEL`. 
+  - *Example:* `ollama pull qwen3.5:0.5b`
+
 ## The Two Cloud Models
 
 This tool distinguishes explicitly between two different downstream LLM layers you might use:

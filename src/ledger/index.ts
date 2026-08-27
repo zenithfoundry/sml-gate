@@ -167,15 +167,23 @@ export interface LangfuseQueuePayload {
 }
 
 export class LangfuseSink {
+  static _warnedMissingKeys = false;
+  
   static getClient(): Langfuse | null {
     if (langfuse) return langfuse;
-    if (CONFIG.LANGFUSE_PUBLIC_KEY && CONFIG.LANGFUSE_SECRET_KEY && CONFIG.LANGFUSE_HOST) {
+    const hasKeys = CONFIG.LANGFUSE_PUBLIC_KEY || CONFIG.LANGFUSE_SECRET_KEY || CONFIG.LANGFUSE_HOST;
+    const hasAllKeys = CONFIG.LANGFUSE_PUBLIC_KEY && CONFIG.LANGFUSE_SECRET_KEY && CONFIG.LANGFUSE_HOST;
+    
+    if (hasAllKeys) {
       langfuse = new Langfuse({
-        publicKey: CONFIG.LANGFUSE_PUBLIC_KEY,
-        secretKey: CONFIG.LANGFUSE_SECRET_KEY,
-        baseUrl: CONFIG.LANGFUSE_HOST,
+        publicKey: CONFIG.LANGFUSE_PUBLIC_KEY!,
+        secretKey: CONFIG.LANGFUSE_SECRET_KEY!,
+        baseUrl: CONFIG.LANGFUSE_HOST!,
       });
       return langfuse;
+    } else if (hasKeys && !this._warnedMissingKeys) {
+      console.error('Langfuse needs LANGFUSE_PUBLIC_KEY + SECRET_KEY + HOST — running ledger-only');
+      this._warnedMissingKeys = true;
     }
     return null;
   }
@@ -238,6 +246,8 @@ export class LangfuseSink {
     
     if (rows.length === 0) return;
     
+    let hasError = false;
+    let lastError: any;
     for (const row of rows) {
       try {
         const payload = JSON.parse(row.payload) as LangfuseQueuePayload;
@@ -263,11 +273,20 @@ export class LangfuseSink {
         
         db.prepare('DELETE FROM langfuse_queue WHERE id = ?').run(row.id);
       } catch (err) {
-        console.error(`Failed to flush langfuse event ${row.id}:`, err);
+        hasError = true;
+        lastError = err;
       }
     }
     
-    await client.flushAsync();
+    if (hasError) {
+      console.warn(`[ledger] Warning: Failed to flush one or more Langfuse events. Last error: ${lastError.message || String(lastError)}`);
+    }
+    
+    try {
+      await client.flushAsync();
+    } catch (err: any) {
+      console.warn(`[ledger] Warning: Langfuse network flush failed: ${err.message || String(err)}`);
+    }
   }
 
   /**

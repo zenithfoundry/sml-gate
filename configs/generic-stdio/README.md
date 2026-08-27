@@ -1,6 +1,6 @@
-# Generic Stdio Configuration
+# Generic Stdio MCP Configuration
 
-If your client supports MCP over standard input/output (stdio), you can configure `slm-gate` as follows:
+**File Location:** Depends on your MCP client's configuration schema.
 
 ```json
 {
@@ -8,15 +8,16 @@ If your client supports MCP over standard input/output (stdio), you can configur
     "slm-gate": {
       "command": "node",
       "args": [
-        "/absolute/path/to/small-language-model-gate/dist/mcp-gate/index.js"
-      ]
+        "<ABS_PATH>/dist/mcp-gate/index.js"
+      ],
+      "env": {
+        "TLS_ADAPTER": "on",
+        "DOWNSTREAM_MCP": "{\"command\":\"node\",\"args\":[\"<ABS_PATH_TO_TLS>/dist/mcp-server.mjs\"]}",
+        "CLOUD_API_KEY": "${CLOUD_API_KEY}"
+      }
     }
   }
 }
 ```
 
-## Next Steps
-
-1. Copy the `.env.16gb.example` or `.env.24gb.example` file to your project root as `.env`.
-2. Configure your local models.
-3. Restart your MCP client.
+After adding this, restart/refresh MCP servers and verify with `slm-gate doctor`.

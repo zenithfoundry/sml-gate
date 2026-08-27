@@ -2,7 +2,7 @@ import ollama, { Ollama } from 'ollama';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { CONFIG } from '../config.js';
-import { SlmFormatError } from './types.js';
+import { SlmFormatError } from './helpers.js';
 
 function stripThinkTags(text: string): string {
   return text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();

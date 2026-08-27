@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
 import { CONFIG } from './config.js';
+import { handleSlmError } from './models/helpers.js';
 
 /**
  * Checks if a given network port is available on the local machine.
@@ -89,7 +90,8 @@ async function run() {
         report(false, `Ollama returned status ${res.status}`, `Ensure Ollama is running at ${CONFIG.OLLAMA_HOST}`);
       }
     } catch (e: any) {
-      report(false, `Ollama unreachable at ${CONFIG.OLLAMA_HOST} (${e.message})`, `Ensure Ollama is running at ${CONFIG.OLLAMA_HOST}`);
+      report(false, `Ollama unreachable at ${CONFIG.OLLAMA_HOST} (${e.message})`, `See detailed SLM error below.`);
+      handleSlmError(e, 'doctor', 'unknown (fetching tags)');
     }
 
     // 4. Verify Local Models are actually pulled

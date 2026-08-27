@@ -1,20 +1,18 @@
-# Generic HTTP Configuration
+# Generic HTTP MCP Configuration
 
-If you're running `mcp-gate` as an HTTP server (`slm-gate serve --layer mcp --transport http`), you can connect any HTTP-compatible MCP client:
+For clients that connect via SSE/HTTP. Ensure you are running `slm-gate serve --layer mcp --transport http` in the background. Note: HTTP connections do not launch the process themselves, so you must start it manually.
+
+**File Location:** Depends on your MCP client's configuration schema.
 
 ```json
 {
   "mcpServers": {
     "slm-gate": {
-      "url": "http://localhost:8788/mcp"
+      "url": "http://localhost:8788/sse",
+      "serverUrl": "http://localhost:8788/sse"
     }
   }
 }
 ```
-*(Note: Some clients, like Antigravity, use `serverUrl` instead of `url`)*
 
-## Next Steps
-
-1. Copy the `.env.16gb.example` or `.env.24gb.example` file to your project root as `.env`.
-2. Configure your local models.
-3. Restart your MCP client.
+After adding this, restart/refresh MCP servers and verify with `slm-gate doctor`.

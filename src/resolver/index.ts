@@ -3,7 +3,7 @@ import { SLM } from '../models/slm.js';
 import { selfConsistency } from '../models/reasoning.js';
 import { getDb, writeEvent } from '../ledger/index.js';
 import { CONFIG } from '../config.js';
-import { withSlmTimeout } from '../models/types.js';
+import { withSlmTimeout } from '../models/helpers.js';
 import {
   RiskLevel,
   SourceKind,

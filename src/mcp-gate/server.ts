@@ -135,9 +135,17 @@ export async function createServer() {
   }
 
   const start = async () => {
+    const sinks = ['sqlite'];
+    if (CONFIG.LANGFUSE_PUBLIC_KEY && CONFIG.LANGFUSE_SECRET_KEY && CONFIG.LANGFUSE_HOST) {
+      sinks.push('langfuse');
+    }
+    const sinksStr = `sinks: [${sinks.join(', ')}]`;
+
     if (CONFIG.MCP_GATE_TRANSPORT === 'stdio') {
       const originalStdoutWrite = process.stdout.write.bind(process.stdout);
       process.stdout.write = process.stderr.write.bind(process.stderr) as any;
+      
+      console.error(`[mcp-gate] Stdio server starting. ${sinksStr}`);
       
       const transport = new StdioServerTransport();
       
@@ -179,7 +187,7 @@ export async function createServer() {
       });
       
       httpServer.listen(CONFIG.MCP_GATE_PORT, () => {
-        console.error(`[mcp-gate] HTTP Streamable server running on port ${CONFIG.MCP_GATE_PORT}`);
+        console.error(`[mcp-gate] HTTP Streamable server running on port ${CONFIG.MCP_GATE_PORT}. ${sinksStr}`);
       });
     }
   };
