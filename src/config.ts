@@ -40,6 +40,7 @@ const envSchema = z.object({
   // STEP 1
   SLM_PROVIDER: z.enum(['ollama', 'openai']).default('ollama'),
   OLLAMA_HOST: z.string().default('http://localhost:11434'),
+  OLLAMA_KEEP_ALIVE: z.string().default('12h'),
   SLM_BRAIN_MODEL: z.string().optional(), // resolved below
   SLM_GATE_MODEL: z.string().optional(),  // resolved below
   NUM_CTX: parseInteger(16384),

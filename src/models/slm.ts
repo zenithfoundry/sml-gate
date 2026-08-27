@@ -29,6 +29,7 @@ export class SLM {
           model,
           messages: [{ role: 'user', content: prompt }],
           format: jsonSchema as any,
+          keep_alive: CONFIG.OLLAMA_KEEP_ALIVE,
           options: {
             temperature: temp,
             num_ctx: CONFIG.NUM_CTX,
@@ -109,6 +110,7 @@ export class SLM {
       const response = await this.client.chat({
         model,
         messages,
+        keep_alive: CONFIG.OLLAMA_KEEP_ALIVE,
         options: {
           temperature,
           num_ctx: CONFIG.NUM_CTX,
@@ -164,6 +166,7 @@ export class SLM {
         model,
         messages,
         stream: true,
+        keep_alive: CONFIG.OLLAMA_KEEP_ALIVE,
         options: {
           temperature,
           num_ctx: CONFIG.NUM_CTX,

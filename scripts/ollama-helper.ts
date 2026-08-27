@@ -13,6 +13,7 @@ export const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://localhost:11434';
 export const SLM_TIMEOUT_MS = process.env.SLM_TIMEOUT_MS || '60000';
 export const SLM_GATE_MODEL = process.env.SLM_GATE_MODEL || 'qwen2.5-coder:3b';
 export const SLM_BRAIN_MODEL = process.env.SLM_BRAIN_MODEL || 'qwen3.5:9b';
+export const OLLAMA_KEEP_ALIVE = process.env.OLLAMA_KEEP_ALIVE || '12h';
 
 /**
  * Checks if Ollama is running and warms up the specified models so they are
@@ -65,6 +66,7 @@ export async function ensureOllamaReady(
           model,
           prompt: 'warmup',
           stream: false,
+          keep_alive: OLLAMA_KEEP_ALIVE,
           options: { num_predict: 1 }
         }),
         signal: AbortSignal.timeout(parseInt(SLM_TIMEOUT_MS, 10))
@@ -104,6 +106,7 @@ export function getE2EEnv(overrides: Record<string, string> = {}): Record<string
   return {
     ...baseEnv,
     OLLAMA_HOST,
+    OLLAMA_KEEP_ALIVE,
     SLM_TIMEOUT_MS,
     SLM_GATE_MODEL,
     SLM_BRAIN_MODEL,
