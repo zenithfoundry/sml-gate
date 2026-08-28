@@ -30,7 +30,7 @@ Do **NOT** use prompt engineering to request JSON wrapped in markdown blocks, an
 
 The system architecture explicitly distinguishes between two different models:
 
-- **SUBSCRIPTION model:** The paid model inside your editor (e.g., Gemini Advanced, Claude Pro). This uses a flat monthly fee. `mcp-gate` conditions and compresses the prompts flowing to it to reduce token/turn usage, but this usage is **NOT** dollar-metered in our ledger.
+- **SUBSCRIPTION model:** The flat-fee or seat-based subscription tier inside your editor (e.g., **Claude Pro / Max / Team / Enterprise**, **Google One AI Premium / Gemini Advanced / Antigravity**, **Cursor Pro / Pro+ / Teams / Enterprise**, **GitHub Copilot Individual / Business / Enterprise**, **ChatGPT Plus / Pro / Team / Enterprise**). This uses a fixed monthly/annual fee. `mcp-gate` conditions and compresses the prompts flowing to it to reduce token/turn usage, but this usage is **NOT** dollar-metered in our ledger.
 - **API model (CLOUD_*):** A metered, pay-per-token endpoint (configured via `CLOUD_*` env vars). This is what `llm-gate` forwards to when it cannot answer locally, and what the resolver can optionally call. The ledger strictly records the API calls ($) and local calls ($0).
 
 ## Decoupling Contract

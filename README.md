@@ -22,7 +22,7 @@
 This tool distinguishes explicitly between two different downstream LLM layers you might use:
 
 1. **Subscription Model (Your Editor):** 
-   - This is the model you pay a flat monthly fee for (e.g., Claude Pro in Claude Code, Gemini Advanced in Antigravity/Cursor). 
+   - This is the model you pay a flat monthly or per-seat subscription for (e.g., **Claude Pro / Max / Team / Enterprise** in Claude Code & Claude Desktop, **Google One AI Premium / Gemini Advanced / Antigravity**, **Cursor Pro / Pro+ / Teams / Enterprise**, **GitHub Copilot Individual / Business / Enterprise**, or **ChatGPT Plus / Pro / Team / Enterprise** in Cline / Continue). 
    - `slm-gate` intercepts prompts bound for this model, compresses them, and answers basic tool usages locally to save you quota and turns. This usage is *not* dollar-metered because you already pay a flat fee.
    
 2. **API Model (Metered):** 
@@ -115,7 +115,7 @@ Understanding which layer to use with your editor:
 ## Verification & Day-to-Day Use (All Clients)
 
 **Cloud API Keys:** 
-When using `mcp-gate` (Layer 1) alongside your IDE's built-in subscription model (e.g., Claude Pro, Gemini Advanced, Cursor Pro), you **do not** need a `CLOUD_API_KEY` in your `.env`. The `CLOUD_*` variables are only required if you use Layer 2 (`llm-gate`) or run the offline testing harness (`slm-gate bench`). For Layer 1, the proxy relies 100% on the local Ollama models (`SLM_BRAIN_MODEL` and `SLM_GATE_MODEL`) to compress and filter payloads before they reach your editor. You can safely leave the cloud keys blank.
+When using `mcp-gate` (Layer 1) alongside your IDE's built-in subscription tier (e.g., **Claude Pro / Max / Team / Enterprise**, **Google One AI Premium / Gemini Advanced / Antigravity**, **Cursor Pro / Pro+ / Teams / Enterprise**, **GitHub Copilot Individual / Business / Enterprise**, or **ChatGPT Plus / Pro / Team / Enterprise**), you **do not** need a `CLOUD_API_KEY` in your `.env`. The `CLOUD_*` variables are only required if you use Layer 2 (`llm-gate`) or run the offline testing harness (`slm-gate bench`). For Layer 1, the proxy relies 100% on the local Ollama models (`SLM_BRAIN_MODEL` and `SLM_GATE_MODEL`) to compress and filter payloads before they reach your editor. You can safely leave the cloud keys blank.
 
 **Build Readiness:**
 Out of the box (or after running `pnpm run test:e2e`), the build script runs automatically and `/dist/mcp-gate/index.js` is ready to use. *Note: If you modify the `.ts` source files, you must run `pnpm run build` again so your connected clients pick up the changes.*
