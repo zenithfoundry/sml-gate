@@ -74,6 +74,7 @@ The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the 
 \`\`\`typescript
 console.log("Preserve code blocks too");
 \`\`\`
+CACHE_BUST_${Date.now()}
 `;
       return { content: [{ type: "text", text: longSkill }] };
     }
@@ -144,7 +145,7 @@ else {
         params: {
           name: targetTool,
           arguments: {
-            text: targetTool === 'condition_prompt' ? "# Fake Skill\nYou MUST keep this line verbatim.\n\n## Important Heading\nFluff text to compress. Fluff text to compress. Fluff text to compress. Fluff text to compress. Fluff text to compress.\n```\ncode\n```" : undefined,
+            text: targetTool === 'condition_prompt' ? "# Fake Skill\nYou MUST keep this line verbatim.\n\n## Important Heading\nFluff text to compress. Fluff text to compress. Fluff text to compress. Fluff text to compress. Fluff text to compress.\n```\ncode\n```\nCACHE_BUST_" + Date.now() : undefined,
             task: "Smoke test e2e conditioning"
           }
         }

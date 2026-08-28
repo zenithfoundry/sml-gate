@@ -35,9 +35,18 @@ export function parseOpenAIRequest(body: any, modelFallback: string): InternalRe
 }
 
 export function buildOpenAIRequest(internal: InternalRequest): any {
+  // Strip any existing system messages to avoid duplication
+  const cleanMessages = internal.messages.filter(m => m.role !== 'system');
+  
+  const finalMessages = cleanMessages.map(m => ({ role: m.role, content: m.content }));
+  
+  if (internal.system) {
+    finalMessages.unshift({ role: 'system', content: internal.system });
+  }
+
   const req: any = {
     model: internal.model,
-    messages: internal.messages.map(m => ({ role: m.role, content: m.content })),
+    messages: finalMessages,
   };
   
   if (internal.maxTokens !== undefined) {

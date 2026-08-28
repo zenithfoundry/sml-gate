@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { SLM } from '../models/slm.js';
 import { selfConsistency } from '../models/reasoning.js';
 import { getDb, writeEvent } from '../ledger/index.js';
@@ -75,7 +76,7 @@ Respond in JSON matching this schema:
   try {
     const url = CONFIG.CLOUD_BASE_URL || (CONFIG.CLOUD_API_STYLE === 'anthropic' ? 'https://api.anthropic.com/v1/messages' : 'https://api.openai.com/v1/chat/completions');
     
-    // Using standard OpenAI compatible payload for routing purposes since it natively supports json_object
+    // Using standard OpenAI compatible payload for routing purposes since it natively supports json_schema
     const res = await fetch(url, {
       method: 'POST',
       headers: {
@@ -85,7 +86,14 @@ Respond in JSON matching this schema:
       body: JSON.stringify({
         model: CONFIG.CLOUD_MODEL,
         messages: [{ role: 'user', content: prompt }],
-        response_format: { type: 'json_object' },
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "resolver_output",
+            strict: true,
+            schema: zodToJsonSchema(schema)
+          }
+        },
         temperature: 0
       })
     });
@@ -155,7 +163,7 @@ export async function extractAmbiguities(
 Task: ${task}
 Context: ${skillText}
 
-Output a list of decisions that need to be made before work can begin. If none, return an empty array.`;
+Output a list of decisions that need to be made before work can begin. If none, return an empty array. Limit to AT MOST 3 critical decisions. Be very concise.`;
 
   const res = await withSlmTimeout(slm.generateJSON(CONFIG.SLM_BRAIN_MODEL, prompt, schema, 0), 'resolver', CONFIG.SLM_TIMEOUT_MS);
   return res.decisions;

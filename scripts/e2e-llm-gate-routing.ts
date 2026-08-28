@@ -38,6 +38,17 @@ async function main() {
     req.on('end', () => {
       console.log(`[mockCloud] received request: ${req.url}`);
       if (req.url === '/v1/chat/completions') {
+        const payload = JSON.parse(body);
+        const hasSystemPrompt = payload.messages.some((m: any) => 
+          m.role === 'system' && m.content.includes('[ARCHITECTURE CONTEXT:')
+        );
+        
+        if (!hasSystemPrompt) {
+           console.error('[mockCloud] FAIL: Missing injected SLM Gate system prompt context!');
+           res.writeHead(400);
+           return res.end();
+        }
+
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           id: 'chatcmpl-mock',

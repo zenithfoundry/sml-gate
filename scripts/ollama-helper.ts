@@ -2,26 +2,37 @@ import { config } from 'dotenv';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// Load .env explicitly for scripts
+// Load environment variables from .env explicitly so scripts can run standalone
 config();
 
+// ESM polyfills for path resolution since __dirname and __filename are not available in ES modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootPath = path.resolve(__dirname, '..');
 
+/** The HTTP endpoint where the local Ollama instance is running. Defaults to standard local port. */
 export const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://localhost:11434';
+
+/** Maximum duration in milliseconds to wait for a model response before aborting the request. */
 export const SLM_TIMEOUT_MS = process.env.SLM_TIMEOUT_MS || '60000';
+
+/** The fast, primary small language model used for prompt conditioning, disambiguation, and routing. */
 export const SLM_GATE_MODEL = process.env.SLM_GATE_MODEL || 'qwen2.5-coder:3b';
+
+/** A slightly larger secondary local model used when more complex reasoning or verification is needed. */
 export const SLM_BRAIN_MODEL = process.env.SLM_BRAIN_MODEL || 'qwen3.5:9b';
+
+/** Duration for which models should remain loaded in VRAM after their last use to prevent cold-start delays. */
 export const OLLAMA_KEEP_ALIVE = process.env.OLLAMA_KEEP_ALIVE || '12h';
 
 /**
- * Checks if Ollama is running and warms up the specified models so they are
- * mounted into memory/VRAM before tests start, avoiding standby cold-start timeouts.
+ * Checks if the Ollama service is running and proactively warms up the specified models.
+ * Warming up loads the models into memory/VRAM before actual tests or traffic begin,
+ * which avoids timeouts caused by the initial cold-start standby delay.
  *
- * @param {string[]} [models] - List of model names to check and warm up.
- * @param {number} [mountWaitMs=1000] - Additional buffer delay in ms after warmup to let model stabilize.
- * @returns {Promise<boolean>} True if Ollama is reachable and warmed up, false otherwise.
+ * @param {string[]} [models] - List of model names to check and warm up. Defaults to the gate and brain models.
+ * @param {number} [mountWaitMs=1000] - Additional buffer delay in ms after warmup requests finish, allowing the model to fully stabilize in VRAM.
+ * @returns {Promise<boolean>} True if Ollama is reachable and models were warmed up successfully, false otherwise.
  */
 export async function ensureOllamaReady(
   models: string[] = [SLM_GATE_MODEL, SLM_BRAIN_MODEL],
@@ -31,6 +42,7 @@ export async function ensureOllamaReady(
 
   let availableModels: string[] = [];
   try {
+    // Attempt to fetch the list of currently installed models to verify Ollama is online
     const res = await fetch(`${OLLAMA_HOST.replace(/\/$/, '')}/api/tags`, {
       signal: AbortSignal.timeout(5000)
     });
@@ -39,6 +51,7 @@ export async function ensureOllamaReady(
       return false;
     }
     const data = await res.json() as { models?: Array<{ name: string; model?: string }> };
+    // Extract just the model names/tags from the response payload
     availableModels = (data.models || []).map(m => m.name || m.model || '');
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -48,8 +61,10 @@ export async function ensureOllamaReady(
 
   console.log(`[ollama-helper] Ollama is online. Available models: [${availableModels.join(', ')}]`);
 
+  // Remove duplicate models to avoid redundant warmup requests
   const uniqueModels = Array.from(new Set(models));
   for (const model of uniqueModels) {
+    // Check if the requested model is actually installed; handle cases with or without the tag
     const isPresent = availableModels.some(m => m === model || m.startsWith(`${model}:`));
     if (!isPresent) {
       console.warn(`[ollama-helper] Warning: Model '${model}' not found in Ollama tags.`);
@@ -59,6 +74,8 @@ export async function ensureOllamaReady(
     console.log(`[ollama-helper] Warming up model '${model}' (mounting to memory)...`);
     const startMount = Date.now();
     try {
+      // Send a dummy generation request that predicts only 1 token.
+      // This forces Ollama to load the model weights into memory without spending time generating text.
       await fetch(`${OLLAMA_HOST.replace(/\/$/, '')}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -66,8 +83,8 @@ export async function ensureOllamaReady(
           model,
           prompt: 'warmup',
           stream: false,
-          keep_alive: OLLAMA_KEEP_ALIVE,
-          options: { num_predict: 1 }
+          keep_alive: OLLAMA_KEEP_ALIVE, // Keep it in VRAM for future requests
+          options: { num_predict: 1 }    // Minimize compute time for the warmup itself
         }),
         signal: AbortSignal.timeout(parseInt(SLM_TIMEOUT_MS, 10))
       });
@@ -79,6 +96,7 @@ export async function ensureOllamaReady(
     }
   }
 
+  // Optional buffer time to ensure models are truly ready to process subsequent heavy requests
   if (mountWaitMs > 0) {
     console.log(`[ollama-helper] Waiting ${mountWaitMs}ms for standby stabilization...`);
     await new Promise(resolve => setTimeout(resolve, mountWaitMs));
@@ -89,13 +107,15 @@ export async function ensureOllamaReady(
 }
 
 /**
- * Returns an environment map configured with OLLAMA_HOST, SLM_TIMEOUT_MS,
- * and model names suitable for child process transports.
+ * Constructs an environment variable map that inherits the current process environment
+ * and injects necessary Ollama configuration constants. This is useful when spawning
+ * child processes (like E2E tests) that need to know how to connect to the local SLM infrastructure.
  *
- * @param {Record<string, string>} [overrides] - Specific environment overrides.
- * @returns {Record<string, string>} Complete environment dictionary for child processes.
+ * @param {Record<string, string>} [overrides] - Additional environment variables to set or override.
+ * @returns {Record<string, string>} A complete dictionary of environment variables ready for a child process.
  */
 export function getE2EEnv(overrides: Record<string, string> = {}): Record<string, string> {
+  // Start with a clean copy of the current process environment, filtering out undefined values
   const baseEnv: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
     if (v !== undefined) {
@@ -110,6 +130,7 @@ export function getE2EEnv(overrides: Record<string, string> = {}): Record<string
     SLM_TIMEOUT_MS,
     SLM_GATE_MODEL,
     SLM_BRAIN_MODEL,
+    SELF_CONSISTENCY_K: '1', // Default setting for generation passes
     ...overrides
   };
 }

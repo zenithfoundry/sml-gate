@@ -1,4 +1,4 @@
-import ollama, { Ollama } from 'ollama';
+import { Ollama } from 'ollama';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { CONFIG } from '../config.js';
@@ -14,6 +14,24 @@ export class SLM {
     this.client = client || new Ollama({ host: CONFIG.OLLAMA_HOST });
   }
 
+  /**
+   * Generates a deterministic JSON payload from the Small Language Model.
+   * This is used internally for agentic logic, routing decisions, and prompt conditioning.
+   * 
+   * It enforces a strict JSON schema and parses the response. If the model returns malformed JSON,
+   * it will catch the error and retry the generation with a temperature of 0 (fully deterministic).
+   * 
+   * @WARNING Do not use markdown extraction, regex parsing, or `stop` tokens to force JSON generation.
+   * Native Structured Outputs (`format: jsonSchema` or `response_format: { type: "json_schema" }`) MUST be used.
+   * Relying on prompt engineering and markdown parsing for JSON has caused severe rambling and timeouts 
+   * (especially on Apple Silicon / llama.cpp) where the model fails to emit a closing brace or stop token.
+   * 
+   * @param model The ID of the local model to execute (e.g., 'qwen2.5-coder:3b')
+   * @param prompt The instruction prompt for the model
+   * @param schema A Zod schema defining the exact JSON structure expected back
+   * @param temperature Generation temperature (randomness). Defaults to CONFIG.TEMPERATURE
+   * @returns A validated, strongly-typed JSON object matching the provided schema
+   */
   async generateJSON<T>(
     model: string,
     prompt: string,
@@ -21,25 +39,27 @@ export class SLM {
     temperature: number = CONFIG.TEMPERATURE
   ): Promise<T> {
     const attempt = async (temp: number) => {
+      // Convert the Zod schema to a standard JSON schema so the LLM understands the expected structure
       const jsonSchema = zodToJsonSchema(schema);
       let responseText = '';
+
+      const promptWithSchema = `${prompt}\n\nRespond with valid JSON matching the schema.`;
 
       if (CONFIG.SLM_PROVIDER === 'ollama') {
         const response = await this.client.chat({
           model,
-          messages: [{ role: 'user', content: prompt }],
+          messages: [{ role: 'user', content: promptWithSchema }],
           format: jsonSchema as any,
           keep_alive: CONFIG.OLLAMA_KEEP_ALIVE,
           options: {
             temperature: temp,
             num_ctx: CONFIG.NUM_CTX,
+            num_predict: 2000,
             think: false
           } as any
         });
         responseText = response.message.content;
       } else if (CONFIG.SLM_PROVIDER === 'openai') {
-        // When SLM_PROVIDER='openai', we hit OLLAMA_HOST using the standard OpenAI Chat Completions API format.
-        // This is used for local models that expose an OpenAI-compatible endpoint.
         const response = await fetch(`${CONFIG.OLLAMA_HOST}/v1/chat/completions`, {
           method: 'POST',
           headers: {
@@ -48,9 +68,17 @@ export class SLM {
           },
           body: JSON.stringify({
             model,
-            messages: [{ role: 'user', content: prompt }],
+            messages: [{ role: 'user', content: promptWithSchema }],
             temperature: temp,
-            response_format: { type: "json_schema", json_schema: { name: "response", schema: jsonSchema } }
+            max_tokens: 2000,
+            response_format: {
+              type: "json_schema",
+              json_schema: {
+                name: "slm_output",
+                strict: true,
+                schema: jsonSchema
+              }
+            }
           }),
           signal: AbortSignal.timeout(CONFIG.SLM_TIMEOUT_MS)
         });
@@ -65,7 +93,7 @@ export class SLM {
         throw new Error(`Unsupported SLM_PROVIDER: ${CONFIG.SLM_PROVIDER}`);
       }
 
-      const stripped = stripThinkTags(responseText);
+      let stripped = stripThinkTags(responseText).trim();
       
       try {
         const parsed = JSON.parse(stripped);
@@ -79,6 +107,7 @@ export class SLM {
       return await attempt(temperature);
     } catch (err) {
       if (err instanceof SlmFormatError) {
+        // If the model hallucinated malformed JSON, retry once with zero temperature (maximum determinism)
         return await attempt(0);
       }
       throw err;

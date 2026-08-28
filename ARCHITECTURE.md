@@ -20,6 +20,12 @@ The system consists of two independently-runnable middleware layers plus one sha
    - Every request from either layer writes one SQLite row locally.
    - Optionally logs traces to Langfuse v4 if configured.
 
+## Native Structured Outputs Requirement
+
+**CRITICAL:** All deterministic routing, reasoning, and JSON extraction must use Native Structured Outputs (`format: jsonSchema` for Ollama and `response_format: { type: "json_schema" }` for OpenAI compatible APIs). 
+Do **NOT** use prompt engineering to request JSON wrapped in markdown blocks, and do not use regex to extract JSON. Relying on markdown extraction causes severe rambling and timeouts (specifically on Apple Silicon / `llama.cpp`) due to models failing to emit stop tokens or closing braces.
+
+
 ## The Two-Model Distinction
 
 The system architecture explicitly distinguishes between two different models:

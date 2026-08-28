@@ -8,6 +8,8 @@
 - **Local Models**: You must manually pull the models suitable for your system's RAM. Refer to [Appendix C: RAM-by-Machine Model Table](#appendix-c-ram-by-machine-model-table) to choose your `SLM_BRAIN_MODEL` and `SLM_GATE_MODEL`. 
   - *Example:* `ollama pull qwen3.5:0.5b`
 
+> **Architectural Warning for Contributors:** This project strictly uses **Native Structured Outputs** (`format: jsonSchema` / `response_format: { type: "json_schema" }`) for all deterministic agentic logic. Do **NOT** use prompt engineering to request JSON in markdown blocks or use regex extraction. Doing so causes severe rambling and timeout flakes on Apple Silicon (`llama.cpp`) due to models failing to emit stop tokens.
+
 ## The Two Cloud Models
 
 This tool distinguishes explicitly between two different downstream LLM layers you might use:

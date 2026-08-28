@@ -135,16 +135,15 @@ export async function distill(
 
 
   // Assert every preserved line is actually in the final output
-  let allPreserved = true;
+  let missingLines: string[] = [];
   for (const originalLine of preserved.values()) {
     if (!finalText.includes(originalLine)) {
-      allPreserved = false;
-      break;
+      missingLines.push(originalLine);
     }
   }
 
-  if (!allPreserved) {
-    console.warn('[distill] Warning: distill_fallback - SLM failed to retain all preserved lines. Returning original text.');
+  if (missingLines.length > 0) {
+    console.warn(`[distill] Warning: distill_fallback - SLM omitted ${missingLines.length} preserved lines. Returning original text.`);
     return text;
   }
 
