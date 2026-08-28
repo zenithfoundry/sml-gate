@@ -129,7 +129,19 @@ export async function distill(
   // Restore placeholders programmatically
   let finalText = compressed;
   for (const [placeholder, originalLine] of preserved.entries()) {
-    finalText = finalText.replace(placeholder, originalLine);
+    if (finalText.includes(placeholder)) {
+      finalText = finalText.replace(placeholder, originalLine);
+    } else {
+      // Fallback matching in case model normalized brackets (e.g. [PRESERVE_1], __PRESERVE_1__, etc.)
+      const match = placeholder.match(/PRESERVE_(\d+)/);
+      if (match) {
+        const idx = match[1];
+        const altRegex = new RegExp(`(?:⟦|\\[|__|\\()\\s*PRESERVE_${idx}\\s*(?:⟧|\\]|__|\\))`, 'g');
+        if (altRegex.test(finalText)) {
+          finalText = finalText.replace(altRegex, originalLine);
+        }
+      }
+    }
   }
 
 

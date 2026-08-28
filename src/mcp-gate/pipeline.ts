@@ -64,7 +64,7 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
   // 2. Distill
   const slmFunc = async (t: string, taskDesc?: string) => {
     // Generate text completion for compression
-    const prompt = `You are an expert prompt compression assistant. Your task is to compress and summarize the non-preserved narrative text below into concise points.\n\nRules:\n1. You MUST keep all __PRESERVE_*__ tokens intact and verbatim in their exact locations.\n2. Summarize and condense the surrounding text while keeping instructions clear.\n\nTask Context: ${taskDesc || 'None'}\n\nText to compress:\n${t}`;
+    const prompt = `You are an expert prompt compression assistant. Your task is to compress and summarize the non-preserved narrative text below into concise points.\n\nRules:\n1. You MUST keep all ⟦PRESERVE_*⟧ tokens (e.g. ⟦PRESERVE_0⟧, ⟦PRESERVE_1⟧) intact and verbatim in their exact locations.\n2. Summarize and condense the surrounding text while keeping instructions clear.\n3. Never drop, remove, rename, or translate any ⟦PRESERVE_*⟧ placeholder tokens.\n\nTask Context: ${taskDesc || 'None'}\n\nText to compress:\n${t}`;
     return slmClient.generateText(CONFIG.SLM_GATE_MODEL, [{ role: 'user', content: prompt }]);
   };
   
