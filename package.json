@@ -2,7 +2,37 @@
   "name": "small-language-model-gate",
   "version": "1.0.0",
   "type": "module",
-  "description": "A decoupled local-SLM pre-processing and routing layer.",
+  "description": "A decoupled local-SLM pre-processing and routing layer for MCP and cloud LLMs. Intercepts, distills, and routes prompts locally with Ollama to cut token costs and protect monthly quota.",
+  "license": "MIT",
+  "author": "bronz3beard",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bronz3beard/small-language-model-gate.git"
+  },
+  "bugs": {
+    "url": "https://github.com/bronz3beard/small-language-model-gate/issues"
+  },
+  "homepage": "https://github.com/bronz3beard/small-language-model-gate#readme",
+  "keywords": [
+    "ai",
+    "slm",
+    "small-language-model",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "local-ai",
+    "ollama",
+    "qwen",
+    "prompt-compression",
+    "llm-routing",
+    "token-optimization",
+    "cost-reduction",
+    "agentic-workflows",
+    "ai-agents",
+    "antigravity",
+    "cursor",
+    "claude-code"
+  ],
   "bin": {
     "slm-gate": "./dist/cli.js"
   },

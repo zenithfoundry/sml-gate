@@ -1,5 +1,12 @@
 # small-language-model-gate
 
+[![CI](https://github.com/bronz3beard/small-language-model-gate/actions/workflows/ci.yml/badge.svg)](https://github.com/bronz3beard/small-language-model-gate/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![MCP Compatible](https://img.shields.io/badge/MCP-Compatible-green.svg)](https://modelcontextprotocol.io/)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](package.json)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.5-blue.svg)](tsconfig.json)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/bronz3beard/small-language-model-gate/pulls)
+
 `small-language-model-gate` (CLI: `slm-gate`) is a local AI routing and pre-processing layer designed to intercept easy, repetitive tasks with a small, free local model before they hit your expensive subscription or API-based cloud model. By compressing context, resolving simple prompts locally, and metering API usage, it dramatically reduces your cloud usage and protects your monthly quota.
 
 ## Prerequisites
@@ -52,13 +59,56 @@ For clients that allow overriding the base URL of the model itself (like Cursor,
 
 ## Client Compatibility Matrix
 
-| Client | Layer 1 (`mcp-gate`) | Layer 2 (`llm-gate`) | Notes |
+Understanding which layer to use with your editor:
+- **Layer 1 (`mcp-gate`)**: Operates as a **Model Context Protocol (MCP) server** between your client and downstream tools/skills. It intercepts large tool responses, skills, and prompts, running a small local SLM to compress and distill them before they enter your editor's context window.
+- **Layer 2 (`llm-gate`)**: Operates as a **local LLM proxy server** (OpenAI and Anthropic API compatible) listening on `http://localhost:8787`. Your client points its model base URL at it; `llm-gate` answers easy questions locally for free and only routes complex tasks to your paid cloud model.
+
+| Client | Layer 1 (`mcp-gate`) | Layer 2 (`llm-gate`) | Notes & Key References |
 | :--- | :---: | :---: | :--- |
-| **Antigravity** | ✅ | ❌ | Antigravity uses a locked internal model; use mcp-gate. |
-| **Claude Code** | ✅ | ✅ | `ANTHROPIC_BASE_URL=http://localhost:8787`. Disables native Tool Search. |
-| **Cursor** | ✅ | ✅ | Override Base URL in Settings > Models. |
-| **Cline / Continue** | ✅ | ✅ | Configure via OpenAI-compatible endpoint. |
-| **Claude Desktop** | ✅ | ❌ | Stdio only for MCP. Cannot override internal Claude model. |
+| **Antigravity** | ✅ Supported | ❌ Unsupported | **Layer 1:** Configured via `~/.gemini/config/mcp_config.json` (stdio/HTTP) to compress tool & skill payloads.<br>**Layer 2:** Unsupported because Antigravity uses a locked internal Gemini routing pipeline with no user-configurable base URL override.<br>📚 *References:* [Antigravity MCP Documentation](https://antigravity.google/docs/mcp/) • [MCP Protocol Spec](https://modelcontextprotocol.io/) |
+| **Claude Code** | ✅ Supported | ✅ Supported | **Layer 1:** Added via `.mcp.json` or `claude mcp add-json`.<br>**Layer 2:** Enabled by exporting `ANTHROPIC_BASE_URL=http://localhost:8787`. *Note:* Pointing to a custom base URL causes Claude Code to disable server-side MCP Tool Search (it inlines tool schemas instead).<br>📚 *References:* [Claude Code MCP Docs](https://code.claude.com/docs/en/mcp) • [Claude Code Env Vars](https://code.claude.com/docs/en/env-vars) • [Tool Search Guide](https://code.claude.com/docs/en/agent-sdk/tool-search) |
+| **Cursor** | ✅ Supported | ✅ Supported | **Layer 1:** Configured via `.cursor/mcp.json` or Cursor Settings > MCP.<br>**Layer 2:** Enabled under Cursor Settings > Models by checking "Override OpenAI Base URL" (`http://localhost:8787/v1`) with a custom API key.<br>📚 *References:* [Cursor Models Settings & Base URL](https://forum.cursor.com/t/openai-api-and-override-base-url-values/148140) • [LiteLLM Cursor Integration](https://docs.litellm.ai/docs/tutorials/cursor_integration) |
+| **Cline / Continue** | ✅ Supported | ✅ Supported | **Layer 1:** Added via `cline_mcp.json` or `.continue/config.yaml`.<br>**Layer 2:** Full native support for custom OpenAI-compatible providers (`apiBase: http://localhost:8787/v1`).<br>📚 *References:* [Cline OpenAI Provider](https://docs.cline.bot/provider-config/openai-compatible) • [Continue Custom Base URL](https://docs.continue.dev/customize/model-providers/top-level/openai) • [Continue MCP Guide](https://docs.continue.dev/customize/deep-dives/mcp) |
+| **Claude Desktop** | ✅ Supported | ❌ Unsupported | **Layer 1:** Configured via `claude_desktop_config.json` using local `stdio` transport.<br>**Layer 2:** Unsupported because Claude Desktop connects strictly to Anthropic's hosted API with no endpoint override setting.<br>📚 *References:* [Anthropic Local MCP on Claude Desktop](https://support.anthropic.com/en/articles/10949351-getting-started-with-model-context-protocol-mcp-on-claude-for-desktop) • [MCP Connect Local Servers Guide](https://modelcontextprotocol.io/docs/2026-07-28/develop/connect-local-servers) |
+
+---
+
+### Client Setup & Compatibility Deep Dive
+
+#### 1. Google Antigravity
+- **Beginner Summary:** Google Antigravity connects directly to external tools using the open Model Context Protocol standard. You can add `slm-gate` as an MCP server to automatically shrink bulky tool outputs and skills before they reach the model.
+- **Why Layer 1 Works:** Antigravity reads MCP server definitions from `~/.gemini/config/mcp_config.json` (globally) or `.agents/mcp_config.json` (workspace-level). `mcp-gate` runs as a standard stdio/HTTP MCP proxy.
+- **Why Layer 2 is Blocked:** Antigravity manages its own internal inference engine (Gemini 3.7 / Cloud) and does not provide an option to redirect chat completions to a custom HTTP proxy URL.
+- **Config Template:** See [`configs/antigravity/README.md`](file:///Users/bz3b/Desktop/repos/small-language-model-gate/configs/antigravity/README.md).
+- **Official Docs:** [Google Antigravity MCP Guide](https://antigravity.google/docs/mcp/)
+
+#### 2. Claude Code
+- **Beginner Summary:** Anthropic's CLI agent (`claude`) allows configuring both external MCP tools and overriding the main Anthropic API endpoint.
+- **Why Layer 1 Works:** Claude Code supports project-level and global MCP configuration via `.mcp.json` or the CLI command `claude mcp add-json slm-gate '{...}'`.
+- **Why Layer 2 Works (and the Tool Search caveat):** You can redirect all model calls to `llm-gate` by setting `export ANTHROPIC_BASE_URL="http://localhost:8787"`. When `ANTHROPIC_BASE_URL` points to a non-Anthropic endpoint, Claude Code automatically falls back from server-side Tool Search (`tool_reference` blocks) to inlining tool schemas in context.
+- **Config Template:** See [`configs/claude-code/README.md`](file:///Users/bz3b/Desktop/repos/small-language-model-gate/configs/claude-code/README.md).
+- **Official Docs:** [Claude Code MCP Docs](https://code.claude.com/docs/en/mcp) | [Claude Code Environment Variables](https://code.claude.com/docs/en/env-vars)
+
+#### 3. Cursor
+- **Beginner Summary:** Cursor is an AI-first IDE that supports custom MCP servers and lets you route AI requests through your own custom API proxy endpoint.
+- **Why Layer 1 Works:** Add `slm-gate` to `.cursor/mcp.json` in your workspace or project root.
+- **Why Layer 2 Works:** In Cursor, navigate to **Settings > Models**, enable **Override OpenAI Base URL**, and set it to `http://localhost:8787/v1`. All Chat and Composer queries will route through `llm-gate`, resolving simple tasks locally and forwarding hard tasks to your cloud API model.
+- **Config Template:** See [`configs/cursor/README.md`](file:///Users/bz3b/Desktop/repos/small-language-model-gate/configs/cursor/README.md).
+- **Official Docs:** [Cursor Custom Models & Base URL Forum Guide](https://forum.cursor.com/t/openai-api-and-override-base-url-values/148140)
+
+#### 4. Cline & Continue
+- **Beginner Summary:** Both Cline and Continue are open-architecture VS Code / JetBrains extensions designed for full provider and tool flexibility.
+- **Why Layer 1 Works:** Both extensions support MCP server definitions (e.g., in `cline_mcp.json` or `.continue/config.yaml`).
+- **Why Layer 2 Works:** Select the **OpenAI-Compatible** provider in Cline/Continue settings and enter `http://localhost:8787/v1` as the Base URL (`apiBase`).
+- **Config Template:** See [`configs/cline-continue-opencode/README.md`](file:///Users/bz3b/Desktop/repos/small-language-model-gate/configs/cline-continue-opencode/README.md).
+- **Official Docs:** [Cline OpenAI-Compatible Settings](https://docs.cline.bot/provider-config/openai-compatible) | [Continue Configuration Reference](https://docs.continue.dev/customize/model-providers/top-level/openai)
+
+#### 5. Claude Desktop
+- **Beginner Summary:** Anthropic's official desktop application supports local MCP tool integrations via stdio, but locks its core chat model to Anthropic's cloud.
+- **Why Layer 1 Works:** Add `slm-gate` to your `claude_desktop_config.json` (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS or `%APPDATA%\Claude\claude_desktop_config.json` on Windows).
+- **Why Layer 2 is Blocked:** Claude Desktop is strictly bound to Anthropic's hosted infrastructure and provides no setting or environment variable to redirect its chat stream to a local endpoint proxy.
+- **Config Template:** See [`configs/claude-desktop/README.md`](file:///Users/bz3b/Desktop/repos/small-language-model-gate/configs/claude-desktop/README.md).
+- **Official Docs:** [Anthropic Desktop MCP Setup](https://support.anthropic.com/en/articles/10949351-getting-started-with-model-context-protocol-mcp-on-claude-for-desktop)
 
 ---
 
