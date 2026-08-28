@@ -94,7 +94,8 @@ export const server = http.createServer(async (req, res) => {
       slm_latency_s: result.slmLatency,
       api_latency_s: result.apiLatency,
       verifier_flags: JSON.stringify(result.verifierFlags),
-      slm_gate: 'on'
+      slm_gate: 'on',
+      meta: JSON.stringify({ raw_in_tok: result.inTok })
     };
     writeEvent(event);
 

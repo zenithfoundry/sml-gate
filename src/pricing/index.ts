@@ -50,3 +50,17 @@ export function calculateCostUsd(model: string, inTok: number, outTok: number): 
 
   return (inTok * rate.in + outTok * rate.out) / 1e6;
 }
+
+export function safeCalculateCostUsd(model: string | undefined, inTok: number, outTok: number, fallbackModel = 'gemini-2.5-flash'): number {
+  const target = model || fallbackModel;
+  try {
+    return calculateCostUsd(target, inTok, outTok);
+  } catch {
+    try {
+      return calculateCostUsd(fallbackModel, inTok, outTok);
+    } catch {
+      return 0;
+    }
+  }
+}
+

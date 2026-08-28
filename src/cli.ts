@@ -88,6 +88,12 @@ Commands:
                  Options:
                    --n <number>             (number of tasks to run)
   metrics        Show performance and cost metrics from the local ledger
+  ledger:sync    Sync local SQLite ledger traces and scores to Langfuse
+                 Options:
+                   --all                    (sync all historical events)
+                   --limit <number>         (limit number of events to sync)
+                   --dry-run                (simulate without sending network requests)
+  ledger:reset   Nuke local SQLite database and start fresh
   config         Print the current resolved configuration
   models:check   Check if required models are pulled and fit in RAM
   doctor         Run preflight readiness checks
@@ -129,6 +135,25 @@ Commands:
     runCommand(tsxPath, [path.join(ROOT_DIR, 'harness/run.ts'), ...benchArgs]);
   } else if (command === 'metrics') {
     runCommand(tsxPath, [path.join(ROOT_DIR, 'harness/metrics.ts')]);
+  } else if (command === 'ledger:sync' || command === 'sync') {
+    const syncArgs = args.slice(1);
+    const { command: cmd, args: cmdArgs } = getRunPath('src/ledger/sync.ts');
+    runCommand(cmd, [...cmdArgs, ...syncArgs]);
+  } else if (command === 'ledger:reset') {
+    const filesToNuke = [
+      path.join(ROOT_DIR, 'output/ledger.sqlite'),
+      path.join(ROOT_DIR, 'output/ledger.sqlite-wal'),
+      path.join(ROOT_DIR, 'output/ledger.sqlite-shm'),
+      path.join(ROOT_DIR, 'output/deferral_curve.svg'),
+      path.join(ROOT_DIR, 'output/leaderboard.md')
+    ];
+    for (const f of filesToNuke) {
+      if (fs.existsSync(f)) {
+        fs.unlinkSync(f);
+      }
+    }
+    console.log('Local SQLite ledger and benchmark outputs nuked successfully.');
+    process.exit(0);
   } else if (command === 'config') {
     const { command: cmd, args: cmdArgs } = getRunPath('src/config.ts');
     // For config, if using node, we need to make sure we don't just import it but run it.

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { CONFIG } from '../src/config.js';
-import { LedgerEvent } from '../src/ledger/index.js';
+import { LedgerEvent, writeEvent } from '../src/ledger/index.js';
 import { deriveArms, GradedResult } from './arms.js';
 import { renderSvg } from './curve.js';
 import { loadTasks } from './dataset.js';
@@ -78,7 +78,7 @@ function writeCache(taskId: string, route: string, entry: CacheEntry) {
  * Bypasses HTTP boundaries entirely to avoid networking flakiness and 
  * the requirement to have the `llm-gate` server running during benchmark execution.
  */
-async function callLlmGate(prompt: string, routeHeader: string): Promise<{ answer: string, reqId: string | null, error?: string, cost?: number, inTokens?: number, outTokens?: number, route?: LedgerEvent['route'] }> {
+async function callLlmGate(prompt: string, routeHeader: string, taskId?: string): Promise<{ answer: string, reqId: string | null, error?: string, cost?: number, inTokens?: number, outTokens?: number, route?: LedgerEvent['route'] }> {
   try {
     const req: InternalRequest = {
       model: CONFIG.CLOUD_MODEL || 'unknown',
@@ -86,6 +86,27 @@ async function callLlmGate(prompt: string, routeHeader: string): Promise<{ answe
     };
     const reqId = crypto.randomUUID();
     const res = await processPipeline(reqId, req, { routePolicy: routeHeader as any });
+
+    const event: LedgerEvent = {
+      ts: new Date().toISOString(),
+      layer: 'llm',
+      request_id: reqId,
+      route: res.route,
+      is_local_call: res.isLocal ? 1 : 0,
+      slm_model: res.isLocal ? res.model : undefined,
+      api_model: res.isLocal ? undefined : res.model,
+      in_tok: res.isLocal ? res.inTok : 0,
+      out_tok: res.isLocal ? res.outTok : 0,
+      api_in_tok: res.apiInTok,
+      api_out_tok: res.apiOutTok,
+      cost_usd: res.costUsd,
+      slm_latency_s: res.slmLatency,
+      api_latency_s: res.apiLatency,
+      verifier_flags: JSON.stringify(res.verifierFlags),
+      slm_gate: routeHeader === 'raw' ? 'off' : 'on',
+      meta: JSON.stringify({ raw_in_tok: res.inTok, taskId })
+    };
+    writeEvent(event);
     
     return {
       answer: extractAnswer(res.body),
@@ -218,6 +239,29 @@ async function run() {
         armBOutTokens = autoCache.outTokens || 0;
         armBRoute = autoCache.armBRoute || 'forward_raw';
         if (autoCache.error) errorCount++;
+
+        // Record the event into SQLite ledger
+        const isLocal = armBRoute === 'defer_local';
+        const event: LedgerEvent = {
+          ts: autoCache.ts || new Date().toISOString(),
+          layer: 'llm',
+          request_id: `bench_${task.id}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          route: armBRoute,
+          is_local_call: isLocal ? 1 : 0,
+          slm_model: isLocal ? autoCache.slmModel : undefined,
+          api_model: !isLocal ? autoCache.apiModel : undefined,
+          in_tok: isLocal ? armBInTokens : 0,
+          out_tok: isLocal ? armBOutTokens : 0,
+          api_in_tok: !isLocal ? armBInTokens : 0,
+          api_out_tok: !isLocal ? armBOutTokens : 0,
+          cost_usd: armBCost,
+          slm_latency_s: 0.15,
+          api_latency_s: 0.45,
+          quality_score: armBCorrect ? 1.0 : 0.0,
+          slm_gate: 'on',
+          meta: JSON.stringify({ taskId: task.id, synthetic: true, raw_in_tok: armBInTokens })
+        };
+        writeEvent(event);
       }
 
       results.push({

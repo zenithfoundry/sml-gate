@@ -57,7 +57,12 @@
     "e2e": "pnpm run test:e2e",
     "bench": "tsx harness/run.ts",
     "bench:reset": "rm -rf harness/.cache && pnpm run bench",
-    "metrics": "tsx harness/metrics.ts"
+    "metrics": "tsx harness/metrics.ts",
+    "ledger:sync": "tsx src/ledger/sync.ts",
+    "ledger:reset": "rm -f output/ledger.sqlite output/ledger.sqlite-wal output/ledger.sqlite-shm output/deferral_curve.svg output/leaderboard.md",
+    "ledger:wipe-langfuse": "tsx src/ledger/wipe-langfuse.ts",
+    "langfuse:wipe": "tsx src/ledger/wipe-langfuse.ts",
+    "langfuse:setup-dashboard": "tsx src/ledger/setup-dashboard.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

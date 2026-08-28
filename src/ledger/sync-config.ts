@@ -1,106 +1,139 @@
 /**
- * @fileoverview Utility script to synchronize local Evaluator and Monitor configurations
- * with a remote Langfuse project. It reads JSON definitions from the harness directory
- * and upserts them into the Langfuse instance using the Langfuse Management API.
+ * @fileoverview Programmatic setup utility to initialize Langfuse Score Configs,
+ * Model Definitions, and Monitors via the Langfuse Management API.
  */
 
-import fs from 'node:fs';
 import path from 'node:path';
-import { CONFIG } from '../config.js';
 import { fileURLToPath } from 'node:url';
+import { CONFIG } from '../config.js';
+import { PRICING } from '../pricing/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
- * Synchronizes evaluator and monitor definitions with the Langfuse API.
- * Reads definitions from `harness/evaluators.json` and `harness/monitors.json`
- * and sends POST requests to the respective Langfuse API endpoints.
- * 
- * @async
- * @returns {Promise<void>} Resolves when all synchronizations are complete. Exits the process on critical errors.
+ * Automatically creates Score Configs in Langfuse:
+ * - 'verified' (Categorical: 1='Passed', 0='Escalated') -> replaces '0' and '1' in Langfuse UI with informative labels!
+ * - 'cost_saved_usd' (Numeric)
+ * - 'tokens_saved' (Numeric)
+ * - 'quality_score' (Numeric)
  */
-async function syncConfig(): Promise<void> {
-  // Validate that all required Langfuse configuration variables are present
+export async function syncScoreConfigs(): Promise<void> {
   if (!CONFIG.LANGFUSE_PUBLIC_KEY || !CONFIG.LANGFUSE_SECRET_KEY || !CONFIG.LANGFUSE_HOST) {
-    console.error('LANGFUSE keys or host not configured. Skipping sync.');
-    process.exit(1);
+    return;
   }
 
-  // Construct the Basic Authentication header required by the Langfuse API
   const authHeader = 'Basic ' + Buffer.from(`${CONFIG.LANGFUSE_PUBLIC_KEY}:${CONFIG.LANGFUSE_SECRET_KEY}`).toString('base64');
-  
-  // Ensure the base URL does not have a trailing slash for consistent route construction
   const baseUrl = CONFIG.LANGFUSE_HOST.replace(/\/$/, '');
 
-  console.log('Syncing Langfuse Evaluators and Monitors...');
-
-  try {
-    // -------------------------------------------------------------------------
-    // Sync Evaluators
-    // -------------------------------------------------------------------------
-    const evaluatorsPath = path.resolve(__dirname, '../../harness/evaluators.json');
-    if (fs.existsSync(evaluatorsPath)) {
-      // Parse the evaluators configuration file
-      const evaluators = JSON.parse(fs.readFileSync(evaluatorsPath, 'utf-8')) as Record<string, unknown>[];
-      console.log(`Found ${evaluators.length} evaluators to sync.`);
-      
-      for (const ev of evaluators) {
-        console.log(`- Upserting evaluator: ${ev.name}`);
-        
-        // This makes a best-effort POST to the Langfuse API. 
-        // If the management API for evaluators is unsupported, it logs the error but continues.
-        const res = await fetch(`${baseUrl}/api/public/v1/evaluators`, {
-          method: 'POST',
-          headers: {
-            'Authorization': authHeader,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(ev)
-        });
-        
-        // Non-2xx responses (other than 404) are treated as failures, but we continue processing the rest
-        if (!res.ok && res.status !== 404) {
-          console.error(`  Failed to sync evaluator ${ev.name}: ${res.statusText}`);
-        }
-      }
+  const scoreConfigs = [
+    {
+      name: 'verified',
+      dataType: 'CATEGORICAL',
+      categories: [
+        { label: 'Passed (Local SLM)', value: 'Passed (Local SLM)' },
+        { label: 'Escalated (Cloud)', value: 'Escalated (Cloud)' }
+      ],
+      description: 'Routing decision: SLM resolution vs Cloud escalation'
+    },
+    {
+      name: 'cost_saved_cents',
+      dataType: 'NUMERIC',
+      description: 'Estimated cloud API dollars avoided (converted to Cents) by the local SLM'
+    },
+    {
+      name: 'tokens_saved',
+      dataType: 'NUMERIC',
+      description: 'Number of cloud LLM tokens avoided via local SLM routing'
+    },
+    {
+      name: 'accuracy_rate_pct',
+      dataType: 'NUMERIC',
+      maxValue: 100,
+      minValue: 0,
+      description: 'Accuracy of the SLM gate output against the expected cloud model standard (%)'
     }
+  ];
 
-    // -------------------------------------------------------------------------
-    // Sync Monitors
-    // -------------------------------------------------------------------------
-    const monitorsPath = path.resolve(__dirname, '../../harness/monitors.json');
-    if (fs.existsSync(monitorsPath)) {
-      // Parse the monitors configuration file
-      const monitors = JSON.parse(fs.readFileSync(monitorsPath, 'utf-8')) as Record<string, unknown>[];
-      console.log(`Found ${monitors.length} monitors to sync.`);
-      
-      for (const mon of monitors) {
-        console.log(`- Upserting monitor: ${mon.name}`);
-        
-        // Push the monitor configuration to Langfuse
-        const res = await fetch(`${baseUrl}/api/public/v1/monitors`, {
-          method: 'POST',
-          headers: {
-            'Authorization': authHeader,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(mon)
-        });
-        
-        // Similar to evaluators, log failures without aborting the entire sync process
-        if (!res.ok && res.status !== 404) {
-          console.error(`  Failed to sync monitor ${mon.name}: ${res.statusText}`);
-        }
+  console.log('Initializing Langfuse Score Configurations...');
+  for (const config of scoreConfigs) {
+    try {
+      const res = await fetch(`${baseUrl}/api/public/score-configs`, {
+        method: 'POST',
+        headers: {
+          'Authorization': authHeader,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(config)
+      });
+      if (res.ok) {
+        console.log(`  ✓ Score config registered: ${config.name}`);
+      } else if (res.status === 409 || res.status === 400) {
+        // Already exists or duplicate name
+        console.log(`  • Score config already active: ${config.name}`);
+      } else {
+        console.warn(`  ! Score config ${config.name} response: ${res.statusText}`);
       }
+    } catch (err: any) {
+      console.warn(`  ! Could not sync score config ${config.name}: ${err.message}`);
     }
-
-    console.log('Sync complete.');
-  } catch (err) {
-    // Catch-all for unexpected errors (e.g., file read errors, network failure)
-    console.error('Failed to sync config:', err);
-    process.exit(1);
   }
 }
 
-// Execute the synchronization script
-syncConfig();
+/**
+ * Automatically creates Model Definitions and Pricing in Langfuse
+ */
+export async function syncModelDefinitions(): Promise<void> {
+  if (!CONFIG.LANGFUSE_PUBLIC_KEY || !CONFIG.LANGFUSE_SECRET_KEY || !CONFIG.LANGFUSE_HOST) {
+    return;
+  }
+
+  const authHeader = 'Basic ' + Buffer.from(`${CONFIG.LANGFUSE_PUBLIC_KEY}:${CONFIG.LANGFUSE_SECRET_KEY}`).toString('base64');
+  const baseUrl = CONFIG.LANGFUSE_HOST.replace(/\/$/, '');
+
+  console.log('Initializing Langfuse Model Definitions...');
+  for (const [modelName, rates] of Object.entries(PRICING)) {
+    try {
+      const modelPayload = {
+        modelName,
+        matchPattern: `(?i)^${modelName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}.*$`,
+        unit: 'TOKENS',
+        inputPrice: rates.in / 1e6,
+        outputPrice: rates.out / 1e6,
+      };
+
+      const res = await fetch(`${baseUrl}/api/public/models`, {
+        method: 'POST',
+        headers: {
+          'Authorization': authHeader,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(modelPayload)
+      });
+      if (res.ok) {
+        console.log(`  ✓ Model definition registered: ${modelName}`);
+      } else if (res.status === 409 || res.status === 400) {
+        console.log(`  • Model definition already active: ${modelName}`);
+      }
+    } catch (err: any) {
+      console.warn(`  ! Could not sync model ${modelName}: ${err.message}`);
+    }
+  }
+}
+
+export async function initLangfuseConfigs(): Promise<void> {
+  await syncScoreConfigs();
+  await syncModelDefinitions();
+}
+
+// Direct execution
+if (process.argv[1] && (process.argv[1].endsWith('sync-config.ts') || process.argv[1].endsWith('sync-config.js'))) {
+  initLangfuseConfigs()
+    .then(() => {
+      console.log('Langfuse configurations successfully initialized.');
+      process.exit(0);
+    })
+    .catch((err) => {
+      console.error('Failed to initialize Langfuse configs:', err);
+      process.exit(1);
+    });
+}
