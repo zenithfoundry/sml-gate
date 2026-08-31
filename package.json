@@ -1,5 +1,5 @@
 {
-  "name": "small-language-model-gate",
+  "name": "@zenithfoundry/slm-gate",
   "version": "1.0.0",
   "type": "module",
   "description": "A decoupled local-SLM pre-processing and routing layer for MCP and cloud LLMs. Intercepts, distills, and routes prompts locally with Ollama to cut token costs and protect monthly quota.",
@@ -90,5 +90,8 @@
     "onlyBuiltDependencies": [
       "better-sqlite3"
     ]
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
