@@ -1,9 +1,8 @@
 import Database from 'better-sqlite3';
-import { Langfuse } from 'langfuse';
 import { CONFIG } from '../config.js';
+import crypto from 'node:crypto';
 
 let db: Database.Database | null = null;
-let langfuse: Langfuse | null = null;
 
 export interface LedgerEvent {
   ts: string;
@@ -343,23 +342,17 @@ export function formatEventForLangfuse(e: LedgerEvent): LangfuseQueuePayload {
 export class LangfuseSink {
   static _warnedMissingKeys = false;
   
-  static getClient(): Langfuse | null {
-    if (langfuse) return langfuse;
+  static hasValidConfig(): boolean {
     const hasKeys = CONFIG.LANGFUSE_PUBLIC_KEY || CONFIG.LANGFUSE_SECRET_KEY || CONFIG.LANGFUSE_HOST;
     const hasAllKeys = CONFIG.LANGFUSE_PUBLIC_KEY && CONFIG.LANGFUSE_SECRET_KEY && CONFIG.LANGFUSE_HOST;
     
     if (hasAllKeys) {
-      langfuse = new Langfuse({
-        publicKey: CONFIG.LANGFUSE_PUBLIC_KEY!,
-        secretKey: CONFIG.LANGFUSE_SECRET_KEY!,
-        baseUrl: CONFIG.LANGFUSE_HOST!,
-      });
-      return langfuse;
+      return true;
     } else if (hasKeys && !this._warnedMissingKeys) {
       console.error('Langfuse needs LANGFUSE_PUBLIC_KEY + SECRET_KEY + HOST — running ledger-only');
       this._warnedMissingKeys = true;
     }
-    return null;
+    return false;
   }
 
   static mirrorEvent(e: LedgerEvent) {
@@ -373,72 +366,85 @@ export class LangfuseSink {
   }
 
   static async flushQueue() {
-    const client = LangfuseSink.getClient();
-    if (!client) return;
+    if (!this.hasValidConfig()) return;
     
     const db = getDb();
     const rows = db.prepare('SELECT id, payload FROM langfuse_queue WHERE synced = 0 LIMIT 50').all() as {id: number, payload: string}[];
     
     if (rows.length === 0) return;
     
-    let hasError = false;
-    let lastError: any;
+    const batch = [];
+    const rowIds = [];
+    
     for (const row of rows) {
-      try {
-        const payload = JSON.parse(row.payload) as LangfuseQueuePayload;
-        const trace = client.trace(payload.trace);
-        
-        // Handle generations (both array and legacy single generation)
-        const generations = payload.generations || (payload.generation ? [payload.generation] : []);
-        for (const gen of generations) {
-          trace.generation({
-            id: gen.id || `${trace.id}_gen_${gen.name}`,
-            name: gen.name,
-            model: gen.model,
-            usageDetails: gen.usageDetails,
-            costDetails: gen.costDetails,
-            startTime: new Date(gen.startTime),
-            endTime: new Date(gen.endTime),
-            metadata: gen.metadata,
-          } as any);
-        }
-
-        // Handle scores
-        if (payload.scores && Array.isArray(payload.scores)) {
-          for (const score of payload.scores) {
-            trace.score({
-              id: score.id || `${trace.id}_score_${score.name}`,
-              name: score.name,
-              value: score.value as any,
-              dataType: score.dataType,
-              comment: score.comment,
-            });
+      rowIds.push(row.id);
+      const payload = JSON.parse(row.payload) as LangfuseQueuePayload;
+      
+      batch.push({
+        id: crypto.randomUUID(),
+        type: 'trace-create',
+        timestamp: new Date().toISOString(),
+        body: payload.trace
+      });
+      
+      const generations = payload.generations || (payload.generation ? [payload.generation] : []);
+      for (const gen of generations) {
+        batch.push({
+          id: crypto.randomUUID(),
+          type: 'generation-create',
+          timestamp: new Date().toISOString(),
+          body: {
+            ...gen,
+            traceId: payload.trace.id
           }
-        }
+        });
+      }
 
-        // Legacy span support
-        if (payload.span) {
-          trace.span({
-            name: payload.span.name,
-            startTime: new Date(payload.span.startTime),
-            endTime: new Date(payload.span.endTime),
-            metadata: payload.span.metadata,
+      if (payload.scores && Array.isArray(payload.scores)) {
+        for (const score of payload.scores) {
+          batch.push({
+            id: crypto.randomUUID(),
+            type: 'score-create',
+            timestamp: new Date().toISOString(),
+            body: {
+              ...score,
+              traceId: payload.trace.id
+            }
           });
         }
-        
-        db.prepare('DELETE FROM langfuse_queue WHERE id = ?').run(row.id);
-      } catch (err) {
-        hasError = true;
-        lastError = err;
+      }
+
+      if (payload.span) {
+        batch.push({
+          id: crypto.randomUUID(),
+          type: 'span-create',
+          timestamp: new Date().toISOString(),
+          body: {
+            ...payload.span,
+            traceId: payload.trace.id
+          }
+        });
       }
     }
     
-    if (hasError) {
-      console.warn(`[ledger] Warning: Failed to flush one or more Langfuse events. Last error: ${lastError.message || String(lastError)}`);
-    }
-    
     try {
-      await client.flushAsync();
+      const auth = Buffer.from(`${CONFIG.LANGFUSE_PUBLIC_KEY}:${CONFIG.LANGFUSE_SECRET_KEY}`).toString('base64');
+      const res = await fetch(`${CONFIG.LANGFUSE_HOST}/api/public/ingestion`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${auth}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ batch })
+      });
+      
+      if (!res.ok) {
+        const errText = await res.text();
+        console.warn(`[ledger] Warning: Langfuse ingestion failed (${res.status}): ${errText}`);
+      } else {
+        const placeholders = rowIds.map(() => '?').join(',');
+        db.prepare(`DELETE FROM langfuse_queue WHERE id IN (${placeholders})`).run(...rowIds);
+      }
     } catch (err: any) {
       console.warn(`[ledger] Warning: Langfuse network flush failed: ${err.message || String(err)}`);
     }
@@ -448,7 +454,6 @@ export class LangfuseSink {
    * Test-only utility to reset the internal client state.
    */
   static __resetForTests() {
-    langfuse = null;
     db = null;
   }
 }

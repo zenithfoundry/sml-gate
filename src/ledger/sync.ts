@@ -8,6 +8,7 @@
 import { CONFIG, requireKeys } from '../config.js';
 import { formatEventForLangfuse, getDb, LangfuseSink, LedgerEvent } from './index.js';
 import { initLangfuseConfigs } from './sync-config.js';
+import crypto from 'node:crypto';
 
 interface SyncStats {
   totalEvents: number;
@@ -34,11 +35,6 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
   if (!dryRun) {
     requireKeys(['LANGFUSE_PUBLIC_KEY', 'LANGFUSE_SECRET_KEY', 'LANGFUSE_HOST']);
     await initLangfuseConfigs();
-  }
-
-  const client = dryRun ? null : LangfuseSink.getClient();
-  if (!dryRun && !client) {
-    throw new Error('Could not initialize Langfuse client. Verify LANGFUSE_* keys in .env.');
   }
 
   const db = getDb();
@@ -83,6 +79,40 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
 
   const BATCH_SIZE = 50;
   let batchCount = 0;
+  
+  let batch: any[] = [];
+  const flushBatch = async () => {
+    if (batch.length === 0) return;
+    try {
+      const auth = Buffer.from(`${CONFIG.LANGFUSE_PUBLIC_KEY}:${CONFIG.LANGFUSE_SECRET_KEY}`).toString('base64');
+      const res = await fetch(`${CONFIG.LANGFUSE_HOST}/api/public/ingestion`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${auth}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ batch })
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        console.warn(`\nLangfuse sync failed (${res.status}): ${errText}`);
+        stats.errors += batch.length; // Approximate
+      } else {
+        stats.syncedTraces += batchCount;
+        process.stdout.write(`\rProgress: ${stats.syncedTraces}/${rows.length} traces synced...`);
+      }
+    } catch (err: any) {
+      console.error('\nNetwork error during sync:', err.message || err);
+      stats.errors += batch.length;
+    }
+    batch = [];
+    batchCount = 0;
+  };
+
+  const hasClient = !dryRun && LangfuseSink.hasValidConfig();
+  if (!dryRun && !hasClient) {
+    throw new Error('Could not initialize Langfuse sync. Verify LANGFUSE_* keys in .env.');
+  }
 
   for (let i = 0; i < rows.length; i++) {
     const event = rows[i];
@@ -104,42 +134,56 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
         stats.cloudTokens += (event.api_in_tok || 0) + (event.api_out_tok || 0);
       }
 
-      if (!dryRun && client) {
-        const trace = client.trace(payload.trace);
-
+      if (hasClient) {
+        batch.push({
+          id: crypto.randomUUID(),
+          type: 'trace-create',
+          timestamp: new Date().toISOString(),
+          body: payload.trace
+        });
+        
         const generations = payload.generations || (payload.generation ? [payload.generation] : []);
         for (const gen of generations) {
-          trace.generation({
-            id: gen.id || `${trace.id}_gen_${gen.name}`,
-            name: gen.name,
-            model: gen.model,
-            usageDetails: gen.usageDetails,
-            costDetails: gen.costDetails,
-            startTime: new Date(gen.startTime),
-            endTime: new Date(gen.endTime),
-            metadata: gen.metadata,
-          } as any);
+          batch.push({
+            id: crypto.randomUUID(),
+            type: 'generation-create',
+            timestamp: new Date().toISOString(),
+            body: {
+              ...gen,
+              traceId: payload.trace.id
+            }
+          });
         }
 
         if (payload.scores && Array.isArray(payload.scores)) {
           for (const score of payload.scores) {
-            trace.score({
-              id: score.id || `${trace.id}_score_${score.name}`,
-              name: score.name,
-              value: score.value as any,
-              dataType: score.dataType,
-              comment: score.comment,
+            batch.push({
+              id: crypto.randomUUID(),
+              type: 'score-create',
+              timestamp: new Date().toISOString(),
+              body: {
+                ...score,
+                traceId: payload.trace.id
+              }
             });
           }
         }
+        
+        if (payload.span) {
+          batch.push({
+            id: crypto.randomUUID(),
+            type: 'span-create',
+            timestamp: new Date().toISOString(),
+            body: {
+              ...payload.span,
+              traceId: payload.trace.id
+            }
+          });
+        }
 
-        stats.syncedTraces++;
         batchCount++;
-
         if (batchCount >= BATCH_SIZE) {
-          await client.flushAsync();
-          batchCount = 0;
-          process.stdout.write(`\rProgress: ${stats.syncedTraces}/${rows.length} traces synced...`);
+          await flushBatch();
         }
       } else {
         stats.syncedTraces++;
@@ -150,8 +194,8 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
     }
   }
 
-  if (!dryRun && client && batchCount > 0) {
-    await client.flushAsync();
+  if (hasClient && batch.length > 0) {
+    await flushBatch();
   }
 
   if (!dryRun) {

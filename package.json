@@ -53,6 +53,7 @@
     "e2e:distill-fallback": "tsx scripts/e2e-distill-fallback.ts",
     "e2e:resolver-ambiguities": "tsx scripts/e2e-resolver-ambiguities.ts",
     "smoke:e2e": "tsx scripts/smoke-e2e.ts",
+    "e2e:tls-downstream": "tsx scripts/e2e-tls-downstream.ts",
     "test:e2e": "pnpm run build && pnpm run e2e:standalone-mcp && pnpm run e2e:llm-gate-routing && pnpm run e2e:distill-fallback && pnpm run e2e:resolver-ambiguities && pnpm run smoke:e2e",
     "e2e": "pnpm run test:e2e",
     "bench": "tsx harness/run.ts",
@@ -65,10 +66,13 @@
     "langfuse:setup-dashboard": "tsx src/ledger/setup-dashboard.ts"
   },
   "dependencies": {
+    "@langfuse/client": "^5.11.0",
+    "@langfuse/otel": "^5.11.0",
+    "@langfuse/tracing": "^5.11.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
+    "@opentelemetry/sdk-node": "^0.222.0",
     "better-sqlite3": "^11.2.1",
     "dotenv": "^16.4.5",
-    "langfuse": "^5.4.0",
     "ollama": "^0.5.8",
     "zod": "^3.23.8",
     "zod-to-json-schema": "^3.23.1"
