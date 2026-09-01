@@ -9,6 +9,13 @@
 
 `small-language-model-gate` (CLI: `slm-gate`) is a local AI routing and pre-processing layer designed to intercept easy, repetitive tasks with a small, free local model before they hit your expensive subscription or API-based cloud model. By compressing context, resolving simple prompts locally, and metering API usage, it dramatically reduces your cloud usage and protects your monthly quota.
 
+## Intended Use
+This software runs locally and drives third-party AI tools and models that **you** install and
+authenticate. You are responsible for complying with the terms of any tool, model, or subscription
+you connect to it. It is designed for single-user, local use with your own accounts; it does not
+proxy or share third-party credentials between users. Provided "as is" under the MIT License,
+without warranty of any kind.
+
 ## Prerequisites
 
 - **Ollama**: This project does not ship or maintain an install script for Ollama, as system dependencies vary. Please install Ollama from [ollama.com](https://ollama.com/) and ensure it is running at `http://localhost:11434`.
