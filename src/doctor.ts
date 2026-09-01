@@ -21,11 +21,15 @@ import { getModelsFootprint } from './models/footprint.js';
 /**
  * Checks if a given network port is available on the local machine.
  * 
- * It works by attempting to start a temporary server on the port. If it succeeds, the port is free.
+ * It works by attempting to start a temporary TCP server on the port. If it succeeds, the port is free.
  * If it throws an EADDRINUSE error, the port is taken.
  * 
- * @param port - The port number to check
+ * @param port - The network port number to check (e.g., 8787).
  * @returns A promise resolving to true if the port is free, false otherwise.
+ * 
+ * @example
+ * const isFree = await checkPortFree(8080);
+ * if (!isFree) console.error('Port 8080 is already in use!');
  */
 async function checkPortFree(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -47,8 +51,16 @@ async function checkPortFree(port: number): Promise<boolean> {
 
 /**
  * Main execution flow for the doctor command.
- * Sequentially tests critical dependencies: Node version, Environment vars, SLM availability,
+ * Sequentially tests critical dependencies: Hardware capabilities, Node version, Environment vars, SLM availability,
  * Cloud model API keys, Downstream MCP config, Ledger write-permissions, and Ports.
+ * 
+ * This function will force a process.exit(1) if any issues are detected, preventing the application
+ * from starting in a broken state.
+ * 
+ * @example
+ * // Usually invoked via CLI
+ * // $ node dist/cli.js doctor
+ * run().catch(err => console.error(err));
  */
 async function run() {
   console.log('=== SMALL-LANGUAGE-MODEL-GATE DOCTOR ===\n');
@@ -75,6 +87,8 @@ async function run() {
   const recNumCtx = recommendNumCtx(hw.totalRamGB);
   report(true, `Recommended settings: RAM_PRESET=${recPreset}, NUM_CTX=${recNumCtx}`);
 
+  // Compare the user's specifically configured models against the defaults for their preset
+  // This highlights potential mismatches where a user expects the performance of a preset but has overridden the models
   const defaultModelsForPreset = ramPresets[CONFIG.RAM_PRESET] || ramPresets['custom'];
   if (CONFIG.SLM_BRAIN_MODEL !== defaultModelsForPreset.brain || CONFIG.SLM_GATE_MODEL !== defaultModelsForPreset.gate) {
     console.log(`  Note: Configured models (${CONFIG.SLM_BRAIN_MODEL} + ${CONFIG.SLM_GATE_MODEL}) differ from preset defaults (${defaultModelsForPreset.brain} + ${defaultModelsForPreset.gate})`);
@@ -94,12 +108,14 @@ async function run() {
       const totalBytes = Object.values(footprint).reduce((a, b) => a + b, 0);
       let totalGB = totalBytes / (1024 * 1024 * 1024);
       
+      // If footprint is 0 (Ollama down or models not pulled yet), estimate sizes from the model name's parameter count
       if (totalGB === 0) {
-        // Fallback to name-based heuristic if Ollama is down or model not pulled (~0.7GB per billion params)
+        // Heuristic: ~0.7GB per billion parameters (typical for 4-bit/5-bit quants)
         const est = (m: string) => { const match = m.match(/(\d+(?:\.\d+)?)b/i); return match ? parseFloat(match[1]) * 0.7 : 0; };
         totalGB = est(CONFIG.SLM_BRAIN_MODEL) + est(CONFIG.SLM_GATE_MODEL);
       }
 
+      // Warn if the combined model sizes exceed 70% of total physical RAM
       if (totalGB > hw.totalRamGB * 0.7) {
         memoryWarning = true;
       }
@@ -108,6 +124,8 @@ async function run() {
     }
   }
 
+  // If a memory constraint is detected, actively intervene by writing a known-safe fallback configuration
+  // The system or user can then choose to load this fallback instead of crashing
   if (memoryWarning) {
     const fallbackConfig = {
       RAM_PRESET: recPreset,

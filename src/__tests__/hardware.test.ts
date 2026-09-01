@@ -1,4 +1,4 @@
-import { detectHardware, recommendPreset, recommendNumCtx, getPresetRank } from '../hardware.js';
+import { detectHardware, recommendPreset, recommendNumCtx, getPresetRank, ramPresets } from '../hardware.js';
 
 describe('hardware.ts', () => {
   it('detectHardware detects Apple Silicon', () => {
@@ -57,5 +57,14 @@ describe('hardware.ts', () => {
     expect(getPresetRank('ram-4')).toBe(4);
     expect(getPresetRank('ram-12')).toBe(12);
     expect(getPresetRank('custom')).toBe(24);
+  });
+
+  it('ramPresets map to the correct re-calibrated models', () => {
+    // Assert the specific models requested for the 24GB workhorse vs dedicated setups
+    expect(ramPresets['ram-16'].brain).toBe('qwen3.5:9b');
+    expect(ramPresets['ram-16'].gate).toBe('qwen2.5-coder:3b');
+    
+    expect(ramPresets['ram-24'].brain).toBe('qwen3:14b');
+    expect(ramPresets['ram-24'].gate).toBe('qwen2.5-coder:7b');
   });
 });

@@ -1,6 +1,6 @@
 import { CONFIG } from '../config.js';
 import { handleSlmError } from '../models/helpers.js';
-import { LedgerEvent } from '../ledger/index.js';
+import { LedgerEvent, getDb } from '../ledger/index.js';
 import { classify } from '../models/reasoning.js';
 import { SLM } from '../models/slm.js';
 import { calculateCostUsd } from '../pricing/index.js';
@@ -28,6 +28,12 @@ export interface PipelineResult {
   slmLatency: number;
   apiLatency: number;
   verifierFlags: string[];
+  category?: string;
+  localAttempted?: boolean;
+  localAccepted?: boolean;
+  promptChars?: number;
+  promptTokEst?: number;
+  hasCodeFence?: boolean;
 }
 
 // Very basic token estimator. A real implementation would use a proper tokenizer like tiktoken.
@@ -41,6 +47,35 @@ function countMessagesTokens(messages: InternalMessage[], system?: string): numb
     text += '\n' + m.content;
   }
   return estimateTokens(text);
+}
+
+function getCategorySuccessRate(category: string, window: number, minSamples: number): number | null {
+  try {
+    const db = getDb();
+    const rows = db.prepare(`
+      SELECT json_extract(meta, '$.local_accepted') as accepted
+      FROM events
+      WHERE layer = 'llm'
+        AND json_extract(meta, '$.category') = ?
+        AND json_extract(meta, '$.local_attempted') = 1
+      ORDER BY ts DESC
+      LIMIT ?
+    `).all(category, window) as { accepted: 1 | 0 | null | boolean }[];
+
+    if (rows.length < minSamples) {
+      return null;
+    }
+
+    let acceptedCount = 0;
+    for (const row of rows) {
+      if (row.accepted === 1 || row.accepted === true) {
+        acceptedCount++;
+      }
+    }
+    return acceptedCount / rows.length;
+  } catch (e) {
+    return null; // fail open on error
+  }
 }
 
 /**
@@ -83,7 +118,13 @@ export async function processPipeline(
     costUsd: 0,
     slmLatency: 0,
     apiLatency: 0,
-    verifierFlags: []
+    verifierFlags: [],
+    category: undefined,
+    localAttempted: false,
+    localAccepted: false,
+    promptChars: 0,
+    promptTokEst: 0,
+    hasCodeFence: false
   };
 
   const isSafeForLocal = !isLatestInstructionFromTool(messages);
@@ -97,6 +138,10 @@ export async function processPipeline(
   const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
   const taskText = lastUserMsg ? lastUserMsg.content : '';
 
+  result.promptChars = taskText.length;
+  result.promptTokEst = estimateTokens(taskText);
+  result.hasCodeFence = /```/.test(taskText);
+
   if (routePolicy === 'force-local' || (routePolicy === 'auto' && isSafeForLocal)) {
     // Attempt local classification
     let category = 'other';
@@ -108,9 +153,28 @@ export async function processPipeline(
       // Classification failed, default to 'other'
     }
 
-    const allowList = ['classify', 'extract', 'format', 'boolean', 'short_factual', 'trivial_edit'];
+    result.category = category;
+
+    // The `baseAllowList` defines which task categories the SLM is allowed to attempt answering locally.
+    // Small Language Models excel at deterministic, narrow, and structurally simple tasks but struggle with complex reasoning.
+    // Note: This list perfectly mirrors the ENUM output schema defined in `src/models/reasoning.ts` (excluding 'other').
+    // To expand this list with new capabilities (e.g. 'query_rewrite', 'guardrail_check'), we must also update the classify() prompt schema!
+    const baseAllowList = ['classify', 'extract', 'format', 'boolean', 'short_factual', 'trivial_edit'];
+    let isEligible = baseAllowList.includes(category);
     
-    if (routePolicy === 'force-local' || allowList.includes(category)) {
+    if (CONFIG.ROUTING_TUNE && isEligible && routePolicy !== 'force-local') {
+      if (Math.random() < CONFIG.ROUTING_TUNE_EXPLORE_RATE) {
+        isEligible = true; // Epsilon-greedy exploration
+      } else {
+        const rate = getCategorySuccessRate(category, CONFIG.ROUTING_TUNE_WINDOW, CONFIG.ROUTING_TUNE_MIN_SAMPLES);
+        if (rate !== null && rate < CONFIG.ROUTING_TUNE_THRESHOLD) {
+          isEligible = false;
+        }
+      }
+    }
+
+    if (routePolicy === 'force-local' || isEligible) {
+      result.localAttempted = true;
       // Try local answer
       try {
         let answer = '';
@@ -131,6 +195,10 @@ export async function processPipeline(
 
         const vResult = verify(answer, samples, { nonEmpty: true }, CONFIG.HEADLINE_STRICTNESS);
         result.verifierFlags = vResult.flags;
+        
+        // Note: localAccepted means the VERIFIER accepted the answer (non-empty, no hedging, samples agree) 
+        // — a PROXY for quality, not ground-truth correctness.
+        result.localAccepted = !vResult.escalate;
 
         if (!vResult.escalate || routePolicy === 'force-local') {
           localDeferred = true;

@@ -15,4 +15,4 @@ For clients that connect via SSE/HTTP. Ensure you are running `slm-gate serve --
 }
 ```
 
-After adding this, restart/refresh MCP servers and verify with `slm-gate doctor`.
+After adding this, make sure to build TLS first by running `pnpm run mcp:build` in your TLS directory, then restart/refresh MCP servers and verify with `slm-gate doctor`.

@@ -80,6 +80,13 @@ const envSchema = z.object({
   TLS_ADAPTER: parseBoolean(false),
   DISTILL_PRESERVE_PATH: z.string().optional().transform(v => v?.trim() || null),
   DISTILL_PRESERVE_MODE: z.enum(['extend', 'replace']).default('extend'),
+
+  // ROUTING TUNE
+  ROUTING_TUNE: parseBoolean(false),
+  ROUTING_TUNE_WINDOW: parseInteger(20),
+  ROUTING_TUNE_MIN_SAMPLES: parseInteger(8),
+  ROUTING_TUNE_THRESHOLD: parseFloatNumber(0.5),
+  ROUTING_TUNE_EXPLORE_RATE: parseFloatNumber(0.15),
 });
 
 const parsedEnv = envSchema.parse(process.env);

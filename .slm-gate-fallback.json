@@ -1,0 +1,6 @@
+{
+  "RAM_PRESET": "ram-24",
+  "SLM_BRAIN_MODEL": "qwen3:14b",
+  "SLM_GATE_MODEL": "qwen3:1.7b",
+  "NUM_CTX": 8192
+}
