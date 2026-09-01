@@ -28,6 +28,24 @@ export async function warmup(client = ollama): Promise<void> {
   }
 }
 
+export async function getModelsFootprint(models: string[], client = ollama): Promise<{ [key: string]: number }> {
+  const result: { [key: string]: number } = {};
+  try {
+    const listResponse = await client.list();
+    const availableModels = listResponse.models || [];
+    
+    for (const model of models) {
+      const found = availableModels.find(m => m.name === model || m.model === model);
+      if (found && found.size) {
+        result[model] = found.size;
+      }
+    }
+  } catch (err) {
+    // Ignore error
+  }
+  return result;
+}
+
 export async function footprintReport(client = ollama): Promise<void> {
   console.log(`\n=== SLM Footprint Report ===`);
   const modelsToCheck = new Set([CONFIG.SLM_BRAIN_MODEL, CONFIG.SLM_GATE_MODEL]);

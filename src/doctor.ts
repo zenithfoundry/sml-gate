@@ -15,6 +15,8 @@ import path from 'node:path';
 import net from 'node:net';
 import { CONFIG } from './config.js';
 import { handleSlmError } from './models/helpers.js';
+import { detectHardware, recommendPreset, recommendNumCtx, getPresetRank, ramPresets } from './hardware.js';
+import { getModelsFootprint } from './models/footprint.js';
 
 /**
  * Checks if a given network port is available on the local machine.
@@ -63,6 +65,60 @@ async function run() {
       if (fix) console.log(`  Fix: ${fix}`);
       issues++;
     }
+  }
+
+  // 0. Hardware Check
+  const hw = detectHardware();
+  report(true, `Hardware: ${hw.totalRamGB}GB RAM, ${hw.arch}, ${hw.accelerator} accelerator${hw.unifiedMemory ? ' (Unified Memory)' : ''}`);
+
+  const recPreset = recommendPreset(hw.totalRamGB);
+  const recNumCtx = recommendNumCtx(hw.totalRamGB);
+  report(true, `Recommended settings: RAM_PRESET=${recPreset}, NUM_CTX=${recNumCtx}`);
+
+  const defaultModelsForPreset = ramPresets[CONFIG.RAM_PRESET] || ramPresets['custom'];
+  if (CONFIG.SLM_BRAIN_MODEL !== defaultModelsForPreset.brain || CONFIG.SLM_GATE_MODEL !== defaultModelsForPreset.gate) {
+    console.log(`  Note: Configured models (${CONFIG.SLM_BRAIN_MODEL} + ${CONFIG.SLM_GATE_MODEL}) differ from preset defaults (${defaultModelsForPreset.brain} + ${defaultModelsForPreset.gate})`);
+  }
+
+  let memoryWarning = false;
+  const recRank = getPresetRank(recPreset);
+  const curRank = getPresetRank(CONFIG.RAM_PRESET);
+
+  if (recRank < curRank) {
+    memoryWarning = true;
+  }
+  
+  if (!memoryWarning && CONFIG.SLM_PROVIDER === 'ollama') {
+    try {
+      const footprint = await getModelsFootprint([CONFIG.SLM_BRAIN_MODEL, CONFIG.SLM_GATE_MODEL]);
+      const totalBytes = Object.values(footprint).reduce((a, b) => a + b, 0);
+      let totalGB = totalBytes / (1024 * 1024 * 1024);
+      
+      if (totalGB === 0) {
+        // Fallback to name-based heuristic if Ollama is down or model not pulled (~0.7GB per billion params)
+        const est = (m: string) => { const match = m.match(/(\d+(?:\.\d+)?)b/i); return match ? parseFloat(match[1]) * 0.7 : 0; };
+        totalGB = est(CONFIG.SLM_BRAIN_MODEL) + est(CONFIG.SLM_GATE_MODEL);
+      }
+
+      if (totalGB > hw.totalRamGB * 0.7) {
+        memoryWarning = true;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (memoryWarning) {
+    const fallbackConfig = {
+      RAM_PRESET: recPreset,
+      SLM_BRAIN_MODEL: ramPresets[recPreset].brain,
+      SLM_GATE_MODEL: ramPresets[recPreset].gate,
+      NUM_CTX: recNumCtx
+    };
+    const fallbackPath = path.join(CONFIG.ROOT_DIR, '.slm-gate-fallback.json');
+    fs.writeFileSync(fallbackPath, JSON.stringify(fallbackConfig, null, 2));
+    
+    report(false, `Memory constraint: Current models/preset likely exceed available memory (eviction/thrash risk).`, `A safe fallback config was written to .slm-gate-fallback.json`);
   }
 
   // 1. Node version check
