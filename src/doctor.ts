@@ -190,6 +190,7 @@ async function run() {
     try {
       let modelsUrl = '';
       let headers: Record<string, string> = {};
+      let headerHint = '';
 
       if (CONFIG.CLOUD_API_STYLE === 'anthropic') {
         modelsUrl = CONFIG.CLOUD_BASE_URL
@@ -199,6 +200,13 @@ async function run() {
           'x-api-key': CONFIG.CLOUD_API_KEY,
           'anthropic-version': '2023-06-01'
         };
+        headerHint = `-H "x-api-key: $CLOUD_API_KEY"`;
+      } else if (CONFIG.CLOUD_BASE_URL?.includes('generativelanguage.googleapis.com')) {
+        modelsUrl = 'https://generativelanguage.googleapis.com/v1beta/models';
+        headers = {
+          'x-goog-api-key': CONFIG.CLOUD_API_KEY
+        };
+        headerHint = `-H "x-goog-api-key: $CLOUD_API_KEY"`;
       } else {
         modelsUrl = CONFIG.CLOUD_BASE_URL
           ? CONFIG.CLOUD_BASE_URL.replace(/\/chat\/completions\/?$/, '/models')
@@ -206,18 +214,26 @@ async function run() {
         headers = {
           'Authorization': `Bearer ${CONFIG.CLOUD_API_KEY}`
         };
+        headerHint = `-H "Authorization: Bearer $CLOUD_API_KEY"`;
       }
       
       const res = await fetch(modelsUrl, { headers });
       
       if (res.ok) {
         const data = await res.json();
-        const models = data.data || [];
-        const modelNames = models.map((m: any) => m.id);
-        const cloudModelFound = modelNames.includes(CONFIG.CLOUD_MODEL);
-        const headerHint = CONFIG.CLOUD_API_STYLE === 'anthropic' ? '-H "x-api-key: $CLOUD_API_KEY"' : '-H "Authorization: Bearer $CLOUD_API_KEY"';
-        report(cloudModelFound, `CLOUD_MODEL '${CONFIG.CLOUD_MODEL}' exists in API`, 
-          `Model not found. (Gemini IDs are often preview-tagged. Check available models: curl -s "${modelsUrl}" ${headerHint})`);
+        const models = data.data || data.models || [];
+        // Google's API sometimes prepends "models/" to the model IDs (e.g., "models/gemini-3.1-pro-preview")
+        // We strip it here to match the user's config which might just be "gemini-3.1-pro-preview"
+        const modelNames = models.map((m: any) => (m.id || m.name || '').replace(/^models\//, ''));
+        const configModelStripped = CONFIG.CLOUD_MODEL.replace(/^models\//, '');
+        const cloudModelFound = modelNames.includes(configModelStripped);
+        
+        if (cloudModelFound) {
+          report(true, `CLOUD_MODEL '${CONFIG.CLOUD_MODEL}' exists in API`);
+        } else {
+          report(false, `CLOUD_MODEL '${CONFIG.CLOUD_MODEL}' exists in API`, 
+            `Model not found. (Check available models: curl -s "${modelsUrl}" ${headerHint})`);
+        }
       } else {
         console.log(`⚠️  Could not fetch cloud models list to verify ${CONFIG.CLOUD_MODEL} (status ${res.status})`);
       }

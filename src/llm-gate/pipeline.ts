@@ -277,13 +277,21 @@ export async function processPipeline(
   let fetchBody: any;
 
   if (CONFIG.CLOUD_API_STYLE === 'anthropic') {
-    fetchUrl = fetchUrl || 'https://api.anthropic.com/v1/messages';
+    if (fetchUrl && !fetchUrl.endsWith('/messages')) {
+      fetchUrl = fetchUrl.replace(/\/+$/, '') + '/messages';
+    } else if (!fetchUrl) {
+      fetchUrl = 'https://api.anthropic.com/v1/messages';
+    }
     fetchHeaders['x-api-key'] = CONFIG.CLOUD_API_KEY;
     fetchHeaders['anthropic-version'] = '2023-06-01';
     fetchBody = buildAnthropicRequest(compressedReq);
   } else {
     // openai style
-    fetchUrl = fetchUrl || 'https://api.openai.com/v1/chat/completions';
+    if (fetchUrl && !fetchUrl.endsWith('/chat/completions')) {
+      fetchUrl = fetchUrl.replace(/\/+$/, '') + '/chat/completions';
+    } else if (!fetchUrl) {
+      fetchUrl = 'https://api.openai.com/v1/chat/completions';
+    }
     fetchHeaders['Authorization'] = `Bearer ${CONFIG.CLOUD_API_KEY}`;
     fetchBody = buildOpenAIRequest(compressedReq);
   }
