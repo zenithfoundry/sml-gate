@@ -13,6 +13,7 @@ jest.unstable_mockModule('../../src/config.js', () => ({
   CONFIG: {
     SLM_BRAIN_MODEL: 'qwen-test',
     SLM_GATE_MODEL: 'qwen-gate-test',
+    SLM_GATE_TESTING_MODEL: 'qwen-gate-test',
     CLOUD_MODEL: 'gpt-5.6-sol',
     CLOUD_API_STYLE: 'openai',
     HEADLINE_STRICTNESS: 1,

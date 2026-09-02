@@ -51,7 +51,7 @@ describe('harness cache logic', () => {
     // Write a cached entry that perfectly matches
     writeCache(taskId, route, {
       promptVersion: CONFIG.PROMPT_VERSION,
-      slmModel: CONFIG.SLM_BRAIN_MODEL,
+      slmModel: CONFIG.SLM_GATE_TESTING_MODEL,
       apiModel: CONFIG.CLOUD_MODEL || 'unknown',
       taskId,
       route,

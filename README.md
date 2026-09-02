@@ -163,7 +163,7 @@ pnpm run slm-gate metrics
 
 This commands reads the local ledger and prints an offline comparison showing exactly how much quota/dollars you saved when the gate was ON vs OFF. It requires no API keys and is the source of truth for subscription users.
 
-_(For developers wanting to run systematic benchmarks, see `harness/README.md` and use `slm-gate bench`. Note: The harness requires a funded `CLOUD_API_KEY`.)_
+_(For developers wanting to run systematic benchmarks, see `harness/README.md` and use `slm-gate bench`. The harness evaluates `SLM_GATE_TESTING_MODEL`, defaulting to `SLM_GATE_MODEL`, and requires a funded `CLOUD_API_KEY`.)_
 
 ---
 
@@ -243,6 +243,7 @@ While this example shows dropping from a 9B (or 14B) model to a 7B model, this p
    Verify against `configs/antigravity/.env.24gb.example` that the gate reads:
    - `SLM_BRAIN_MODEL`
    - `SLM_GATE_MODEL`
+   - `SLM_GATE_TESTING_MODEL`
    - `NUM_CTX`
    - `OLLAMA_MAX_LOADED_MODELS`
 7. **Use doctor to sanity-check:**

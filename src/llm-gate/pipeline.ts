@@ -13,6 +13,7 @@ import { buildOpenAIRequest } from './formats/openai.js';
 
 export interface PipelineOptions {
   routePolicy: 'raw' | 'auto' | 'force-local';
+  localModel?: string;
 }
 
 export interface PipelineResult {
@@ -132,7 +133,7 @@ export async function processPipeline(
 
   let localDeferred = false;
   let localAnswer = '';
-  let localModel = CONFIG.SLM_BRAIN_MODEL;
+  let localModel = options.localModel || CONFIG.SLM_BRAIN_MODEL;
 
   // Derive task (last user message)
   const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');

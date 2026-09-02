@@ -54,7 +54,7 @@ function readCache(taskId: string, route: string): CacheEntry | null {
     const data = JSON.parse(fs.readFileSync(p, 'utf8')) as CacheEntry;
     if (
       data.promptVersion === CONFIG.PROMPT_VERSION &&
-      data.slmModel === CONFIG.SLM_BRAIN_MODEL &&
+      data.slmModel === CONFIG.SLM_GATE_TESTING_MODEL &&
       data.apiModel === (CONFIG.CLOUD_MODEL || 'unknown')
     ) {
       return data;
@@ -85,7 +85,10 @@ async function callLlmGate(prompt: string, routeHeader: string, taskId?: string)
       messages: [{ role: 'user', content: prompt }]
     };
     const reqId = crypto.randomUUID();
-    const res = await processPipeline(reqId, req, { routePolicy: routeHeader as any });
+    const res = await processPipeline(reqId, req, { 
+      routePolicy: routeHeader as any,
+      localModel: CONFIG.SLM_GATE_TESTING_MODEL
+    });
 
     const event: LedgerEvent = {
       ts: new Date().toISOString(),
@@ -148,7 +151,7 @@ async function run() {
 
   const BATCH_SIZE = 3;
   let completed = 0;
-  console.log(`Starting benchmark for ${tasksToRun.length} tasks (Concurrency: ${BATCH_SIZE})...`);
+  console.log(`Starting benchmark for ${tasksToRun.length} tasks (Model: ${CONFIG.SLM_GATE_TESTING_MODEL}, Concurrency: ${BATCH_SIZE})...`);
 
   for (let i = 0; i < tasksToRun.length; i += BATCH_SIZE) {
     const batch = tasksToRun.slice(i, i + BATCH_SIZE);
@@ -160,7 +163,7 @@ async function run() {
         const { answer, error } = await callLlmGate(task.prompt, 'force-local');
         localCache = {
           promptVersion: CONFIG.PROMPT_VERSION,
-          slmModel: CONFIG.SLM_BRAIN_MODEL,
+          slmModel: CONFIG.SLM_GATE_TESTING_MODEL,
           apiModel: CONFIG.CLOUD_MODEL || 'unknown',
           taskId: task.id,
           route: 'force-local',
@@ -194,7 +197,7 @@ async function run() {
           const { answer, reqId, error, cost, inTokens, outTokens } = await callLlmGate(task.prompt, 'raw');
           rawCache = {
             promptVersion: CONFIG.PROMPT_VERSION,
-            slmModel: CONFIG.SLM_BRAIN_MODEL,
+            slmModel: CONFIG.SLM_GATE_TESTING_MODEL,
             apiModel: CONFIG.CLOUD_MODEL || 'unknown',
             taskId: task.id,
             route: 'raw',
@@ -219,7 +222,7 @@ async function run() {
           const { answer, reqId, error, cost, inTokens, outTokens, route } = await callLlmGate(task.prompt, 'auto');
           autoCache = {
             promptVersion: CONFIG.PROMPT_VERSION,
-            slmModel: CONFIG.SLM_BRAIN_MODEL,
+            slmModel: CONFIG.SLM_GATE_TESTING_MODEL,
             apiModel: CONFIG.CLOUD_MODEL || 'unknown',
             taskId: task.id,
             route: 'auto',

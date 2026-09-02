@@ -43,6 +43,7 @@ const envSchema = z.object({
   OLLAMA_KEEP_ALIVE: z.string().default('12h'),
   SLM_BRAIN_MODEL: z.string().optional(), // resolved below
   SLM_GATE_MODEL: z.string().optional(),  // resolved below
+  SLM_GATE_TESTING_MODEL: z.string().optional(), // resolved below, used for benchmark harness & test runs
   NUM_CTX: parseInteger(8192),
   TEMPERATURE: parseFloatNumber(0),
   SLM_TIMEOUT_MS: parseInteger(120000),
@@ -109,6 +110,7 @@ export const CONFIG = Object.freeze({
   OUTPUT_DIR,
   SLM_BRAIN_MODEL: parsedEnv.SLM_BRAIN_MODEL || preset.brain,
   SLM_GATE_MODEL: parsedEnv.SLM_GATE_MODEL || preset.gate,
+  SLM_GATE_TESTING_MODEL: parsedEnv.SLM_GATE_TESTING_MODEL || parsedEnv.SLM_GATE_MODEL || preset.gate,
 });
 
 /**
@@ -139,7 +141,7 @@ if (process.argv[1] && (import.meta.url === `file://${process.argv[1]}` || impor
   console.log(JSON.stringify(redactedConfig, null, 2));
 
   console.log('\n--- Summary ---');
-  console.log(`brain: ${CONFIG.SLM_BRAIN_MODEL} | gate: ${CONFIG.SLM_GATE_MODEL}`);
+  console.log(`brain: ${CONFIG.SLM_BRAIN_MODEL} | gate: ${CONFIG.SLM_GATE_MODEL} | test: ${CONFIG.SLM_GATE_TESTING_MODEL}`);
   
   const downstream = CONFIG.DOWNSTREAM_MCP ? (CONFIG.DOWNSTREAM_MCP.command ? `command: ${CONFIG.DOWNSTREAM_MCP.command}` : `url: ${CONFIG.DOWNSTREAM_MCP.url}`) : 'standalone';
   console.log(`downstream: ${downstream}`);
