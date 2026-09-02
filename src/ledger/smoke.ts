@@ -3,7 +3,7 @@ import { calculateCostUsd } from '../pricing/index.js';
 async function main() {
   console.log('--- SLM Gate Ledger Smoke Test ---');
 
-  const apiModel = 'gpt-4o-mini';
+  const apiModel = 'gpt-5.6-luna';
   const apiCost = calculateCostUsd(apiModel, 250, 60);
   console.log(`Cost for ${apiModel} (250 in, 60 out): $${apiCost.toFixed(8)}`);
 
