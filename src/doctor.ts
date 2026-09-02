@@ -188,21 +188,36 @@ async function run() {
   // If the user has configured an upstream cloud model, we attempt to list its models to verify the API key and model string.
   if (CONFIG.CLOUD_BASE_URL && CONFIG.CLOUD_API_KEY && CONFIG.CLOUD_MODEL) {
     try {
-      const modelsUrl = `${CONFIG.CLOUD_BASE_URL}/models`;
-      
-      const res = await fetch(modelsUrl, {
-        headers: {
+      let modelsUrl = '';
+      let headers: Record<string, string> = {};
+
+      if (CONFIG.CLOUD_API_STYLE === 'anthropic') {
+        modelsUrl = CONFIG.CLOUD_BASE_URL
+          ? CONFIG.CLOUD_BASE_URL.replace(/\/messages\/?$/, '/models')
+          : 'https://api.anthropic.com/v1/models';
+        headers = {
+          'x-api-key': CONFIG.CLOUD_API_KEY,
+          'anthropic-version': '2023-06-01'
+        };
+      } else {
+        modelsUrl = CONFIG.CLOUD_BASE_URL
+          ? CONFIG.CLOUD_BASE_URL.replace(/\/chat\/completions\/?$/, '/models')
+          : 'https://api.openai.com/v1/models';
+        headers = {
           'Authorization': `Bearer ${CONFIG.CLOUD_API_KEY}`
-        }
-      });
+        };
+      }
+      
+      const res = await fetch(modelsUrl, { headers });
       
       if (res.ok) {
         const data = await res.json();
         const models = data.data || [];
         const modelNames = models.map((m: any) => m.id);
         const cloudModelFound = modelNames.includes(CONFIG.CLOUD_MODEL);
+        const headerHint = CONFIG.CLOUD_API_STYLE === 'anthropic' ? '-H "x-api-key: $CLOUD_API_KEY"' : '-H "Authorization: Bearer $CLOUD_API_KEY"';
         report(cloudModelFound, `CLOUD_MODEL '${CONFIG.CLOUD_MODEL}' exists in API`, 
-          `Model not found. (Gemini IDs are often preview-tagged. Check available models: curl -s "${modelsUrl}" -H "Authorization: Bearer $CLOUD_API_KEY")`);
+          `Model not found. (Gemini IDs are often preview-tagged. Check available models: curl -s "${modelsUrl}" ${headerHint})`);
       } else {
         console.log(`⚠️  Could not fetch cloud models list to verify ${CONFIG.CLOUD_MODEL} (status ${res.status})`);
       }
