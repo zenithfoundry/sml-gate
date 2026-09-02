@@ -206,4 +206,49 @@ export OLLAMA_MAX_LOADED_MODELS=2
 > - **24GB Mac**: `NUM_CTX=8192` is recommended to fit both models.
 > - **16GB Mac**: `NUM_CTX=4096` is recommended to fit both models.
 
+### ⚠️ RAM Troubleshooting & Sizing Disclaimer: What to do if your RAM config is not working
+
+If you experience high memory pressure, models being evicted (one model constantly unloading to make room for another), sluggish system responsiveness, or out-of-memory errors, the following **MUST** be considered:
+
+#### The Memory Formula
+```text
+Memory = Model Weights + (NUM_CTX × KV-Cache) × Models Loaded
+```
+
+**Dropping the brain model to a 7B is exactly the right lever, and yes it'll cut RAM. But don't just hand-edit `NUM_CTX` to a smaller number and call it done — memory is model weights + (`NUM_CTX` × KV-cache) × models loaded.**
+
+While this example shows dropping from a 9B (or 14B) model to a 7B model, this principle is a general rule that applies to all RAM capacities:
+
+1. **Check your pulled tags:**
+   ```bash
+   ollama list        # see which qwen tags are pulled
+   ```
+2. **Pick a smaller brain:**
+   e.g. `qwen2.5:7b` (pull it if needed: `ollama pull qwen2.5:7b`).
+   Keep the small gate model (`qwen2.5-coder:3b`) as-is; it's already tiny (~2GB).
+3. **Set it in your active environment (NOT just a template file):**
+   - **For Antigravity:** The config Antigravity actually uses is the JSON block in `~/.gemini/config/mcp_config.json` (under `mcpServers.slm-gate.env`). The `.env.24gb.example` file is just a reference. Add these to your `slm-gate` → `env`:
+     ```json
+     "SLM_BRAIN_MODEL": "qwen2.5:7b",
+     "SLM_GATE_MODEL": "qwen2.5-coder:3b",
+     "OLLAMA_MAX_LOADED_MODELS": "2",
+     "NUM_CTX": "4096"
+     ```
+   - **For Standalone / CLI / Stdio / HTTP:** Ensure these are in your active `.env` file or exported in your shell.
+4. **Shrink `NUM_CTX`:**
+   Lowering `NUM_CTX` from `8192` → `4096` is where a lot of the RAM savings actually comes from (the KV cache shrinks with it), and it's the single biggest knob after model size.
+5. **Fallback to Single-Model Mode if still heavy:**
+   If memory is still heavy, `OLLAMA_MAX_LOADED_MODELS="1"` forces one model in memory at a time (slower switching between gate and brain, but uses much less RAM).
+6. **Confirm exact variable names:**
+   Verify against `configs/antigravity/.env.24gb.example` that the gate reads:
+   - `SLM_BRAIN_MODEL`
+   - `SLM_GATE_MODEL`
+   - `NUM_CTX`
+   - `OLLAMA_MAX_LOADED_MODELS`
+7. **Use doctor to sanity-check:**
+   Run `slm-gate doctor` to sanity-check the fit for your RAM:
+   ```bash
+   pnpm run dev doctor   # or: node dist/cli.js doctor
+   ```
+
 _Note: You must pull these models via `ollama pull <model_name>` before running `slm-gate serve`. Run `slm-gate doctor` to verify your environment!_
