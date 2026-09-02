@@ -16,11 +16,11 @@ async function runTest() {
   
   const tlsDist = process.env.TLS_DIST;
   if (!tlsDist) {
-    console.error("FAIL: TLS_DIST env var is not set. It must point to the absolute path of the TLS repo.");
+    console.error("FAIL: TLS_DIST env var is not set. It must point to the absolute path of the TLS server.");
     process.exit(1);
   }
 
-  const tlsServerPath = path.join(tlsDist, 'dist', 'mcp-server.mjs');
+  const tlsServerPath = tlsDist;
   if (!fs.existsSync(tlsServerPath)) {
     console.error(`FAIL: TLS server not found at ${tlsServerPath}`);
     process.exit(1);
@@ -34,6 +34,7 @@ async function runTest() {
     process.exit(1);
   }
 
+  const tlsRepoPath = path.dirname(path.dirname(tlsServerPath));
   const env = getE2EEnv({
     DOWNSTREAM_MCP: JSON.stringify({
       command: "node",
@@ -74,7 +75,10 @@ async function runTest() {
       params: {
         name: 'get_skill',
         arguments: {
-          skillName: 'dummy-skill',
+          skillName: 'planning-expert',
+          projectName: 'e2e-test',
+          model: 'test-model',
+          agent: 'test-agent'
         }
       }
     }, CallToolResultSchema, { timeout: 600000 });
