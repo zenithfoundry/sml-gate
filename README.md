@@ -9,6 +9,16 @@
 
 `small-language-model-gate` (CLI: `slm-gate`) is a local AI routing and pre-processing layer designed to intercept easy, repetitive tasks with a small, free local model before they hit your expensive subscription or API-based cloud model. By compressing context, resolving simple prompts locally, and metering API usage, it dramatically reduces your cloud usage and protects your monthly quota.
 
+> [!NOTE]
+> **Related project — **Tech-Lead-Stack** — an agent-agnostic library of Markdown "skills" plus an MCP
+> server that turns Claude, Gemini, or GPT into a full software-delivery team (planning,
+> building, review, security, release), organized around a nine-phase lifecycle. Its
+> self-correcting Reflexion loop grades implementation plans against four engineering
+> pillars before any code is written.**
+>
+> <a href="https://github.com/bronz3beard/ai.tech-lead-stack" target="_blank" rel="noopener noreferrer">Explore tech-lead-stack on GitHub →</a>
+
+
 ## Intended Use
 
 This software runs locally and drives third-party AI tools and models that **you** install and
