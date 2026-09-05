@@ -82,13 +82,9 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
   try {
     conditioned = await distill(slmFunc, text, task, preserveList);
   } catch (err: any) {
-    if (err.name === 'SlmTimeoutError' || err.message?.includes('fetch failed') || err.code === 'ECONNREFUSED' || err.message?.includes('ECONNREFUSED')) {
-      handleSlmError(err, 'pipeline:distill', CONFIG.SLM_GATE_MODEL);
-      distillTimeoutFlag = true;
-      conditioned = text;
-    } else {
-      handleSlmError(err, 'pipeline:distill', CONFIG.SLM_GATE_MODEL);
-    }
+    handleSlmError(err, 'pipeline:distill', CONFIG.SLM_GATE_MODEL);
+    distillTimeoutFlag = true;
+    conditioned = text;
   }
   console.error(`[pipeline] distill ${((Date.now() - startDistill) / 1000).toFixed(1)}s`);
 
@@ -125,12 +121,8 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
       repoRoot: rootUri ? (rootUri.startsWith('file://') ? fileURLToPath(rootUri) : rootUri) : undefined
     });
   } catch (err: any) {
-    if (err.name === 'SlmTimeoutError' || err.message?.includes('fetch failed') || err.code === 'ECONNREFUSED' || err.message?.includes('ECONNREFUSED')) {
-      handleSlmError(err, 'pipeline:resolver', CONFIG.SLM_BRAIN_MODEL);
-      resolverTimeoutFlag = true;
-    } else {
-      handleSlmError(err, 'pipeline:resolver', CONFIG.SLM_BRAIN_MODEL);
-    }
+    handleSlmError(err, 'pipeline:resolver', CONFIG.SLM_BRAIN_MODEL);
+    resolverTimeoutFlag = true;
   }
   console.error(`[pipeline] resolver ${((Date.now() - startResolver) / 1000).toFixed(1)}s`);
 

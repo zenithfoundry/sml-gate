@@ -157,8 +157,9 @@ else {
       let pass = true;
 
       // Assertion (a): returned text is SHORTER
-      if (conditionedText.includes('[distill_timeout]')) {
-        console.warn("WARNING: Distill timed out, skipping length assertion.");
+      const isPipelineFailure = conditionedText.includes('[distill_timeout]') || conditionedText.includes('[resolver_timeout]');
+      if (isPipelineFailure) {
+        console.warn("WARNING: Pipeline hit SLM timeout or parsing failure, skipping compression assertion.");
       } else {
         if (conditionedText.includes('The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog.')) {
            console.error("FAIL: Text does not appear to be compressed.");

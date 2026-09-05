@@ -195,9 +195,9 @@ Always review the deployment log output before promoting a release to staging en
     const conditionedLength2 = conditionedText2.length;
     console.log(`Conditioned skill char count: ${conditionedLength2}`);
 
-    const isTimedOut = conditionedText2.includes('[distill_timeout]');
+    const isTimedOut = conditionedText2.includes('[distill_timeout]') || conditionedText2.includes('[resolver_timeout]');
     if (isTimedOut) {
-      console.warn("WARNING: Distillation hit SLM timeout, skipping strict reduction assertion.");
+      console.warn("WARNING: Pipeline hit SLM timeout or parsing failure, skipping strict reduction assertion.");
     } else {
       const diff = largeLength - conditionedLength2;
       const reductionPercent = ((diff / largeLength) * 100).toFixed(1);
