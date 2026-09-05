@@ -191,13 +191,11 @@ Selecting the right local models is crucial for performance. As a rule of thumb,
 
 | RAM        | Recommended Presets | Example Brain Models               | Example Gate Models           |
 | :--------- | :------------------ | :--------------------------------- | :---------------------------- |
-| **4 GB**   | `ram-4`             | qwen3.5:1.5b, phi3:mini, gemma2:2b | qwen3.5:0.5b, tinyllama       |
-| **8 GB**   | `ram-8`             | qwen3.5:3b, llama3.2:3b            | qwen3.5:0.5b, phi3:mini       |
-| **16 GB**  | `ram-16`            | qwen3:7b, llama3:8b, mistral:7b    | qwen3:1.7b, phi3:mini         |
-| **24 GB**  | `ram-24`            | qwen3.5:9b, qwen3:14b              | qwen2.5-coder:3b, llama3.2:3b |
-| **32 GB**  | `ram-32`            | qwen3:14b, deepseek-coder:33b      | qwen3:1.7b, llama3:8b         |
-| **64 GB**  | `ram-64`            | qwen3:32b, llama3:70b (Q4)         | qwen3:7b, mistral:7b          |
-| **128 GB** | `ram-128`           | qwen3:72b, command-r-plus:104b     | qwen3:14b, llama3:8b          |
+| **16 GB**  | `ram-16`            | qwen2.5-coder:3b, tinyllama        | qwen2.5-coder:0.5b            |
+| **24 GB**  | `ram-24`            | qwen3.5:4b, llama3.2:3b            | qwen2.5-coder:3b, phi3:mini   |
+| **32 GB**  | `ram-32`            | qwen2.5:7b, mistral:7b             | qwen2.5-coder:3b, phi3:mini   |
+| **64 GB**  | `ram-64`            | qwen3.5:9b, llama3:8b              | qwen3.5:4b, llama3.2:3b       |
+| **128 GB** | `ram-128`           | qwen3:14b, llama3:70b (Q4)         | qwen3:7b, mistral:7b          |
 
 ### Dual-Model Concurrency (`OLLAMA_MAX_LOADED_MODELS`)
 
