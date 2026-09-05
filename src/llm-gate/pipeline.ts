@@ -1,6 +1,7 @@
+import { checkSemanticCache, setSemanticCache } from '../cache/index.js';
 import { CONFIG } from '../config.js';
-import { handleSlmError } from '../models/helpers.js';
 import { LedgerEvent, getDb } from '../ledger/index.js';
+import { handleSlmError } from '../models/helpers.js';
 import { classify } from '../models/reasoning.js';
 import { SLM } from '../models/slm.js';
 import { calculateCostUsd } from '../pricing/index.js';
@@ -137,11 +138,45 @@ export async function processPipeline(
 
   // Derive task (last user message)
   const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
-  const taskText = lastUserMsg ? lastUserMsg.content : '';
+  let taskText = lastUserMsg ? lastUserMsg.content : '';
+  
+  // Normalize by stripping simple timestamps/ids from text if needed, but for now we'll just use taskText
+  const normalizedText = taskText;
 
   result.promptChars = taskText.length;
   result.promptTokEst = estimateTokens(taskText);
   result.hasCodeFence = /```/.test(taskText);
+
+  // SEMANTIC CACHE check
+  let cachedResponse = null;
+  if (isSafeForLocal && CONFIG.SEMCACHE) {
+    // Only cache if it's read-only. We check this with the heuristics or classification later, 
+    // but a quick check is if it's safe for local (no tools)
+    cachedResponse = await checkSemanticCache(normalizedText);
+    if (cachedResponse) {
+      result.route = 'defer_local'; // or 'cache_hit' if we map it, but defer_local gets correct logging
+      result.isLocal = true;
+      result.model = 'semcache';
+      result.outTok = estimateTokens(cachedResponse);
+      result.costUsd = 0; // The actual cost is $0
+      
+      // add a flag so we can see it in ledger
+      if (!result.verifierFlags) result.verifierFlags = [];
+      result.verifierFlags.push('cache_hit');
+
+      result.body = {
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: cachedResponse
+            }
+          }
+        ]
+      };
+      return result;
+    }
+  }
 
   if (routePolicy === 'force-local' || (routePolicy === 'auto' && isSafeForLocal)) {
     // Attempt local classification
@@ -331,6 +366,16 @@ export async function processPipeline(
     }
   } catch (err: any) {
     throw new Error(`Cloud request failed: ${err.message}`);
+  }
+
+  if (isSafeForLocal && CONFIG.SEMCACHE) {
+    let responseText = '';
+    if (result.body && result.body.choices && result.body.choices[0] && result.body.choices[0].message) {
+      responseText = result.body.choices[0].message.content;
+      if (responseText) {
+        await setSemanticCache(normalizedText, responseText);
+      }
+    }
   }
 
   result.apiLatency = (Date.now() - t1) / 1000;

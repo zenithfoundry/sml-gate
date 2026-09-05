@@ -60,6 +60,11 @@ const envSchema = z.object({
   CLOUD_API_KEY: z.string().optional(),
   CLOUD_MODEL: z.string().optional(),
 
+  // Semantic CACHE
+  SEMCACHE: parseBoolean(false),
+  SEMCACHE_THRESHOLD: parseFloatNumber(0.95),
+  EMBED_MODEL: z.string().default('nomic-embed-text'),
+
   // STEP 4
   LLM_GATE_PORT: parseInteger(8787),
   LLM_GATE_EXPOSE: parseStringArray(['openai', 'anthropic']),

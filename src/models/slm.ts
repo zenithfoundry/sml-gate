@@ -211,4 +211,37 @@ export class SLM {
       yield text;
     }
   }
+
+  /**
+   * Generates embeddings for the given text using the specified local model.
+   */
+  async embed(model: string, text: string): Promise<number[]> {
+    if (CONFIG.SLM_PROVIDER === 'ollama') {
+      const response = await this.client.embeddings({
+        model,
+        prompt: text,
+        keep_alive: CONFIG.OLLAMA_KEEP_ALIVE,
+      });
+      return response.embedding;
+    } else {
+      // For openai-compatible embeddings endpoint
+      const response = await fetch(`${CONFIG.OLLAMA_HOST}/v1/embeddings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(CONFIG.CLOUD_API_KEY && { 'Authorization': `Bearer ${CONFIG.CLOUD_API_KEY}` })
+        },
+        body: JSON.stringify({
+          model,
+          input: text
+        }),
+        signal: AbortSignal.timeout(CONFIG.SLM_TIMEOUT_MS)
+      });
+      if (!response.ok) {
+        throw new Error(`OpenAI API error (embeddings): ${response.statusText}`);
+      }
+      const data = await response.json();
+      return data.data[0].embedding;
+    }
+  }
 }

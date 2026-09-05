@@ -1,15 +1,16 @@
-import { SLM } from '../models/slm.js';
-import { handleSlmError } from '../models/helpers.js';
-import { CONFIG } from '../config.js';
-import { buildPreserveList, distill } from './distill.js';
-import { scan } from './ground.js';
-import { resolveAmbiguities } from '../resolver/index.js';
-import { cacheGet, cacheSet, writeEvent } from '../ledger/index.js';
+import crypto from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import { z } from 'zod';
+import { checkSemanticCache, setSemanticCache } from '../cache/index.js';
+import { CONFIG } from '../config.js';
+import { cacheGet, cacheSet, writeEvent } from '../ledger/index.js';
+import { handleSlmError } from '../models/helpers.js';
+import { SLM } from '../models/slm.js';
+import { resolveAmbiguities } from '../resolver/index.js';
+import { buildPreserveList, distill } from './distill.js';
+import { scan } from './ground.js';
+
 
 let slmClient: ReturnType<typeof createSlmClient>;
 /**
@@ -57,6 +58,13 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
   const cached = cacheGet(cacheKey);
   if (cached) {
     return cached;
+  }
+  
+  if (CONFIG.SEMCACHE) {
+    const semCached = await checkSemanticCache(text);
+    if (semCached && typeof semCached === 'string') {
+      return semCached;
+    }
   }
 
   const preserveList = await getPreserveList();
@@ -174,6 +182,9 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
   // 6. Cache Set (only cache successful non-timed-out responses)
   if (!distillTimeoutFlag && !resolverTimeoutFlag) {
     cacheSet(cacheKey, conditioned);
+    if (CONFIG.SEMCACHE) {
+      await setSemanticCache(text, conditioned);
+    }
   }
 
   return conditioned;
