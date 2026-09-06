@@ -86,6 +86,12 @@ const envSchema = z.object({
   TLS_ADAPTER: parseBoolean(false),
   DISTILL_PRESERVE_PATH: z.string().optional().transform(v => v?.trim() || null),
   DISTILL_PRESERVE_MODE: z.enum(['extend', 'replace']).default('extend'),
+  DISTILL_MAX_TOKENS: parseInteger(2000),
+  DISTILL_MIN_TOKENS: parseInteger(500),
+  KEEP_RECENT_TOOL_TURNS: parseInteger(2),
+  ELISION_MAX_ENTRIES: parseInteger(5000),
+  ELISION_RETENTION_DAYS: parseInteger(180),
+  ELISION_MAX_MB: parseInteger(500),
 
   // ROUTING TUNE
   ROUTING_TUNE: parseBoolean(false),

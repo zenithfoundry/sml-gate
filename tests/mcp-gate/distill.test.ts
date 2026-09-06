@@ -11,6 +11,9 @@ jest.unstable_mockModule('../../src/config.js', () => ({
     DISTILL_PRESERVE_MODE: 'extend',
     DISTILL_PRESERVE_PATH: null,
     TLS_ADAPTER: false,
+    DISTILL_MIN_TOKENS: 0,
+    DISTILL_MAX_TOKENS: 0,
+    LEDGER_PATH: ':memory:'
   },
 }));
 
@@ -18,7 +21,8 @@ jest.unstable_mockModule('../../src/config.js', () => ({
 
 const fsMock = await import('fs/promises');
 const { CONFIG } = await import('../../src/config.js');
-const { buildPreserveList, distill } = await import('../../src/mcp-gate/distill.js');
+const { buildPreserveList } = await import('../../src/mcp-gate/patterns.js');
+const { distillToolResult } = await import('../../src/utils/elision.js');
 
 // Mock SLM behavior
 const mockSlm = jest.fn(async (text: string) => {
@@ -56,7 +60,7 @@ You MUST do this
 Here is code: \`const a = 1;\`
 End`;
 
-    const result = await distill(mockSlm as any, text, undefined, patterns);
+    const result = await distillToolResult(mockSlm as any, text, undefined, undefined, undefined, patterns);
     
     // With our mockSLM, the text passes through.
     // We just verify it replaced lines with placeholders and restored them.
@@ -75,7 +79,7 @@ End`;
 
     const patterns = await buildPreserveList();
     const text = `MUST keep this\nUSER_MAGIC_LINE here`;
-    await distill(mockSlm as any, text, undefined, patterns);
+    await distillToolResult(mockSlm as any, text, undefined, undefined, undefined, patterns);
 
     expect(mockSlm).toHaveBeenCalledWith(expect.stringContaining('⟦PRESERVE_0⟧'), undefined); // MUST line
     expect(mockSlm).toHaveBeenCalledWith(expect.stringContaining('⟦PRESERVE_1⟧'), undefined); // USER line
@@ -90,7 +94,7 @@ End`;
 
     const patterns = await buildPreserveList();
     const text = `MUST drop this\nUSER_MAGIC_LINE here`;
-    await distill(mockSlm as any, text, undefined, patterns);
+    await distillToolResult(mockSlm as any, text, undefined, undefined, undefined, patterns);
 
     // MUST line is not preserved because replace mode drops built-ins
     expect(mockSlm).toHaveBeenCalledWith(expect.stringContaining('MUST drop this'), undefined); 
@@ -108,7 +112,7 @@ End`;
     
     // The valid one should still work
     const text = `USER_MAGIC_LINE here`;
-    await distill(mockSlm as any, text, undefined, patterns);
+    await distillToolResult(mockSlm as any, text, undefined, undefined, undefined, patterns);
     expect(mockSlm).toHaveBeenCalledWith(expect.stringContaining('⟦PRESERVE_0⟧'), undefined);
   });
 
@@ -117,7 +121,7 @@ End`;
     (CONFIG as any).TLS_ADAPTER = false;
     let patterns = await buildPreserveList();
     let text = `Phase 2`;
-    await distill(mockSlm as any, text, undefined, patterns);
+    await distillToolResult(mockSlm as any, text, undefined, undefined, undefined, patterns);
     // Not preserved
     expect(mockSlm).toHaveBeenCalledWith(expect.stringContaining('Phase 2'), undefined);
 
@@ -126,7 +130,8 @@ End`;
     // State 2: ON
     (CONFIG as any).TLS_ADAPTER = true;
     patterns = await buildPreserveList();
-    await distill(mockSlm as any, text, undefined, patterns);
+    const text2 = `Phase 3`;
+    await distillToolResult(mockSlm as any, text2, undefined, undefined, undefined, patterns);
     
     // In test:decoupling, the adapter is missing, so patterns will be empty
     const { existsSync } = await import('fs');
@@ -139,7 +144,7 @@ End`;
       expect(mockSlm).toHaveBeenCalledWith(expect.stringContaining('⟦PRESERVE_0⟧'), undefined);
     } else {
       // Not preserved due to missing adapter (in decoupling mode)
-      expect(mockSlm).toHaveBeenCalledWith(expect.stringContaining('Phase 2'), undefined);
+      expect(mockSlm).toHaveBeenCalledWith(expect.stringContaining('Phase 3'), undefined);
       expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Failed to load TLS adapter patterns'), expect.anything());
     }
   });
@@ -155,7 +160,7 @@ Footer`;
       return `Header\nFooter`; // placeholder dropped
     });
 
-    const result = await distill(destructiveSlm as any, text, undefined, patterns);
+    const result = await distillToolResult(destructiveSlm as any, text, undefined, undefined, undefined, patterns);
     
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('distill_fallback'));
     expect(result).toBe(text); // Returned original text
@@ -172,7 +177,7 @@ And some more useless text that should be compressed away.`;
       return `Intro text cut.\n⟦PRESERVE_1⟧\nEnd cut.`; 
     });
 
-    const result = await distill(compressingSlm as any, text, undefined, patterns);
+    const result = await distillToolResult(compressingSlm as any, text, undefined, undefined, undefined, patterns);
     
     expect(console.warn).not.toHaveBeenCalledWith(expect.stringContaining('distill_fallback'));
     expect(result).toContain('You MUST do this');
@@ -182,8 +187,36 @@ And some more useless text that should be compressed away.`;
   it('logs greedy list warning if > 70% lines are preserved', async () => {
     const patterns = await buildPreserveList();
     const text = `MUST line 1\nMUST line 2\nMUST line 3\nNormal line`;
-    await distill(mockSlm as any, text, undefined, patterns);
+    await distillToolResult(mockSlm as any, text, undefined, undefined, undefined, patterns);
 
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('distill_low_yield'));
+  });
+  
+  it('truncates search results to top-K', async () => {
+    const lines = Array.from({ length: 100 }).map((_, i) => `Result ${i}`);
+    const { distillToolResult } = await import('../../src/utils/elision.js');
+    const result = await distillToolResult(mockSlm as any, lines.join('\n'), 'task', 'search', {}, []);
+    expect(result).toContain('Result 0');
+    expect(result).toContain('Result 49');
+    expect(result).not.toContain('Result 50');
+    expect(result).toContain('lines elided');
+  });
+
+  it('keeps error lines and tail for get_logs', async () => {
+    const lines = Array.from({ length: 100 }).map((_, i) => i === 20 ? 'Error: failed' : `Log ${i}`);
+    const { distillToolResult } = await import('../../src/utils/elision.js');
+    const result = await distillToolResult(mockSlm as any, lines.join('\n'), 'task', 'get_logs', {}, []);
+    expect(result).toContain('Error: failed');
+    expect(result).toContain('Log 19');
+    expect(result).toContain('Log 99');
+    expect(result).toContain('lines elided');
+  });
+
+  it('preserves small files entirely but elides large files based on search', async () => {
+    const lines = Array.from({ length: 200 }).map((_, i) => i === 100 ? 'function processData()' : `Code ${i}`);
+    const { distillToolResult } = await import('../../src/utils/elision.js');
+    const result = await distillToolResult(mockSlm as any, lines.join('\n'), 'processData', 'read_file', { path: 'test.ts' }, []);
+    expect(result).toContain('function processData()');
+    expect(result).toContain('lines elided');
   });
 });

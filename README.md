@@ -10,7 +10,7 @@
 `small-language-model-gate` (CLI: `slm-gate`) is a local AI routing and pre-processing layer designed to intercept easy, repetitive tasks with a small, free local model before they hit your expensive subscription or API-based cloud model. By compressing context, resolving simple prompts locally, and metering API usage, it dramatically reduces your cloud usage and protects your monthly quota.
 
 > [!NOTE]
-> **Related project — **Tech-Lead-Stack** — an agent-agnostic library of Markdown "skills" plus an MCP
+> **Related project **Tech-Lead-Stack** an agent-agnostic library of Markdown "skills" plus an MCP
 > server that turns Claude, Gemini, or GPT into a full software-delivery team (planning,
 > building, review, security, release), organized around a nine-phase lifecycle. Its
 > self-correcting Reflexion loop grades implementation plans against four engineering
@@ -185,6 +185,114 @@ _Caveat: Because hosted "small" models still cost money and incur network latenc
 
 ---
 
+## Architecture & Documentation
+
+- **[Context Distillation and Elision](./docs/architecture/context-distillation-and-elision.md)**: How the system safely drops old tool outputs to save tokens, and how the elision cache is managed.
+
+---
+
+## Environment Configuration Reference
+
+### What this tool does
+This software (the **gate**) sits *between* your AI coding assistant (in Cursor, Claude Code, and similar) and the powerful **paid AI in the cloud** Claude, GPT, or Gemini. It runs a **small, free AI on your own computer** and uses it two ways:
+
+1. **It shrinks and cleans up** the large amounts of text your editor would otherwise send to the paid AI (big files, long logs), so you're not paying for content the AI doesn't actually need.
+2. **It answers the easy requests itself**, locally and for free, so those never reach the paid AI at all.
+
+The result is that your paid AI plan or pay-as-you-go budget lasts far longer, because you spend far fewer **tokens** the unit AI usage is billed in (roughly, one token is about three-quarters of a word).
+
+### A few terms used throughout
+- **Local model** a small AI that runs on *your* computer. It's free to run but less capable than the big cloud AIs. Sometimes called the "SLM" (small language model).
+- **Cloud model** the powerful, paid AI you access over the internet (Claude, GPT, Gemini). Capable, but every request costs money.
+- **Ollama** a free program that runs local AI models on your machine. It's the usual way this gate runs its local model.
+- **Token** the billing/measurement unit for AI text. ~¾ of a word. Fewer tokens sent = less money spent.
+- **Port** like an apartment number for network traffic on your computer; lets two programs find each other.
+
+All variables below live in a file named `.env` and are **checked when the app starts** if a value is wrong, the app stops with a clear error instead of misbehaving quietly. The settings are grouped into steps that roughly follow setup order. Most have sensible defaults you can leave alone.
+
+---
+
+### Step 1 Local model (SLM) setup
+*These control the small, free AI on your computer: where it runs, which models it uses, and how carefully it double-checks its own answers.*
+
+- **`SLM_PROVIDER`** Where the local AI comes from. `ollama` runs it on your own machine for free (the normal choice). `openai` instead points it at a cheap *hosted* model, for computers that can't run a local AI.
+- **`OLLAMA_HOST`** The address where your Ollama program is listening. The default is Ollama's standard address on your own computer; only change it if Ollama runs on a different machine or port. (Default: `http://localhost:11434`)
+- **`OLLAMA_KEEP_ALIVE`** How long the local model stays loaded in memory after it's used. Keeping it loaded means it responds instantly next time instead of taking seconds to warm up; the trade-off is it holds onto memory. Lower it if your computer is short on memory. (Default: `12h`)
+- **`SLM_BRAIN_MODEL`** The name of the *bigger, smarter* local model, used for harder jobs like drafting. Bigger local models are more capable but need more memory and are slower.
+- **`SLM_GATE_MODEL`** The name of the *smaller, faster* local model, used for quick decisions like "can I handle this myself, or should I send it to the cloud?" Here, speed matters more than brilliance.
+- **`SLM_GATE_TESTING_MODEL`** Only used when running the built-in benchmark tests. You can ignore it for normal use.
+- **`NUM_CTX`** How much text the local model can consider at once its short-term memory, measured in tokens. Bigger lets it handle larger inputs but uses more of your graphics card's memory. Lower this if the app runs out of memory. (Default: `8192`, roughly 6,000 words at a time)
+- **`TEMPERATURE`** How random or "creative" the local model's answers are, from `0` (always the most likely, most predictable answer) upward. It's set to `0` here on purpose, because this tool wants consistent, repeatable results, not creativity. (Default: `0`)
+- **`SLM_TIMEOUT_MS`** The longest the app waits for the local model to answer before giving up, in milliseconds. Raise it if you have a slow computer and see timeouts. (Default: `120000`, i.e. 2 minutes)
+- **`SELF_CONSISTENCY_K`** When the gate double-checks a local answer, this is how many times it quietly re-asks the same question. If the answers agree, the result is trusted; if they disagree, it's treated as unreliable and handed to the cloud AI instead. More re-asks = a more reliable check, but more local work. (Default: `3`)
+- **`SELF_CONSISTENCY_TEMP`** The randomness used during those re-asks. It's deliberately above zero so the re-asks vary a little if the model gives the same answer even when nudged to differ, that's a strong sign the answer is solid. (Default: `0.7`)
+
+### Step 2 Verifier settings
+*After the local AI answers, a "verifier" grades whether the answer is good enough to trust. If it isn't, the request is escalated to the paid cloud AI. These control how strict that grading is.*
+
+- **`STRICTNESS_LEVELS`** The list of available grading levels, from `0` (lenient) to `5` (very strict). You normally leave this as-is; it just defines the scale. (Default: `0,1,2,3,4,5`)
+- **`HEADLINE_STRICTNESS`** Which grading level is *actually in use*. Higher means a local answer must be clearly good to be accepted, so more requests get sent to the paid cloud AI (safer, but costs more). Lower means local answers are trusted more easily (saves money, but risks weaker answers). (Default: `4`, fairly strict)
+
+### Step 3 Cloud model and answer-reuse (semantic cache)
+*These tell the gate how to reach your paid cloud AI, and let it remember past answers so it doesn't pay to answer the same question twice.*
+
+- **`CLOUD_API_STYLE`** Which "dialect" your paid AI provider speaks: `openai` or `anthropic`. Pick the one matching your provider so the gate formats requests correctly.
+- **`CLOUD_BASE_URL`** The web address of your paid AI provider's service (e.g. `https://api.openai.com/v1`).
+- **`CLOUD_API_KEY`** Your secret key for the paid AI like a password that authorizes (and bills) your usage. Keep it private. You can leave it blank if you only use the gate's compression with an editor subscription rather than a pay-as-you-go key.
+- **`CLOUD_MODEL`** The exact name of the paid model you want to use (e.g. a specific Claude or GPT version).
+- **`SEMCACHE`** Turns on "answer reuse." When on, the gate remembers the answers to read-only questions and reuses them when you ask something nearly identical, so a repeat question costs nothing instead of a full paid round-trip. It's off by default because it changes behavior (answers can come from memory); turn it on once you're comfortable the reused answers are correct. Only read-only questions are ever remembered, and an entry is thrown away automatically if a file it depended on changes so you won't get a stale answer for edited code. (`on` / `off`)
+- **`SEMCACHE_THRESHOLD`** How similar a new question must be to a remembered one before the old answer is reused, from `0` (anything counts) to `1` (must be word-for-word identical). `0.95` is quite strict, so only near-identical questions reuse an answer. Lower it to save more, at the risk of reusing an answer for a slightly different question. (Default: `0.95`)
+- **`EMBED_MODEL`** The small local model used to measure that "how similar are these two questions?" comparison. It runs free on your machine. If you change it, clear the cache, because entries saved with the old model won't compare correctly. (Default: `nomic-embed-text`)
+
+### Step 4 Server settings
+*Network settings for the gate's two parts. You can usually leave these at their defaults.*
+
+- **`LLM_GATE_PORT`** The port the local proxy listens on. Change it only if that number is already taken by another program. (Default: `8787`)
+- **`LLM_GATE_EXPOSE`** Which request dialects the local proxy will accept. Leave as-is unless you specifically need to restrict it. (Default: `openai,anthropic`)
+- **`DOWNSTREAM_MCP`** If you want the gate to sit in front of *another* tool server (such as Tech-Lead-Stack) and compress its output, put that server's launch details here as JSON. Leave it blank to run the gate on its own.
+- **`MCP_GATE_TRANSPORT`** How the tool-compression part communicates: `stdio` (the standard when your editor launches it directly) or `http` (a network connection). Most setups use `stdio`.
+- **`MCP_GATE_PORT`** The port used *only* if you chose the `http` option above. (Default: `8788`)
+
+### Step 5 Logging and telemetry
+*Where the gate records what it did how many tokens it saved, what it sent to the cloud so you can see it working.*
+
+- **`LEDGER_PATH`** Where the local record-keeping database file is stored on your computer. This holds your usage and cost history.
+- **`LANGFUSE_PUBLIC_KEY`**, **`LANGFUSE_SECRET_KEY`**, **`LANGFUSE_HOST`** An *optional* connection to Langfuse, an online dashboard for inspecting AI activity in more detail. Fill these in only if you use Langfuse; the gate works fine without it and always keeps the local record above.
+
+### Step 6 Clarification resolver and miscellaneous
+*A grab-bag of toggles including a feature that lets the local AI ask the paid AI for help on genuinely ambiguous decisions, with a strict spending cap.*
+
+- **`RESOLVER_CLOUD_TIER`** When the local AI hits a genuinely ambiguous decision it can't settle on its own, this lets it make a small, bounded call to the paid AI for help. (`on` / `off`)
+- **`RESOLVER_CLOUD_BUDGET_USD`** A hard dollar limit on how much that help feature may spend in total. The default of `0` means it won't spend anything so the feature is effectively off until you give it a budget (for example, `5` allows up to $5). (Default: `0`)
+- **`PROMPT_VERSION`** A label used to reset the gate's saved answers. If you change this string (say `v1` to `v2`), all previously saved answers are ignored and fresh ones are generated. Useful after you change how the gate's prompts work. (Default: `v1`)
+- **`RAM_PRESET`** A convenience setting that auto-picks sensible local models for your computer's memory size: `ram-8` (8 GB), `ram-16`, `ram-32`, or `custom` to choose everything yourself.
+- **`TLS_ADAPTER`** Turns on special handling for Tech-Lead-Stack, a companion tool. Leave it off unless you're running the gate in front of Tech-Lead-Stack. (`on` / `off`)
+
+### Step 7 Shrinking tool output, and getting it back if needed
+*When a tool returns something big (a large file, a long log), the gate shrinks it with the local model before it reaches your editor, so you don't pay cloud tokens for content the AI doesn't need. The original is stashed locally so the AI can cheaply get back anything that was trimmed.*
+
+**Reading the token numbers below:** roughly **4 characters ≈ 1 token**. As a rule of thumb that's about **~10 tokens per line of code**, or **~750 words per 1,000 tokens** so the caps translate to a real amount of code or text.
+
+- **`DISTILL_PRESERVE_PATH`** Points to a file listing text patterns that must **never** be shrunk or altered (for example, specific code markers or IDs you always want kept exactly as-is). Optional; leave blank to rely on the built-in list.
+- **`DISTILL_PRESERVE_MODE`** Whether your custom "never shrink" patterns are *added to* the built-in ones (`extend`) or *replace* them entirely (`replace`). `extend` is the safe choice.
+- **`DISTILL_MAX_TOKENS`** The **ceiling**: the most tokens a single tool result may take up *after* shrinking. This is a safety backstop the gate already keeps only the relevant parts; this just stops anything unusually huge from flooding the AI's memory. If a result is still over this after shrinking, the extra is trimmed and replaced with a marker the AI can expand on demand. **`2000` ≈ ~8,000 characters ≈ ~200 lines of code ≈ ~1,500 words.** *Example:* you read a 900-line file (~9,000 tokens); the gate keeps the ~20 lines around your search term plus the file's imports and function names about 180 lines (~1,800 tokens), under the ceiling, so nothing is trimmed. But a test that dumps a 6,000-line log, even after keeping the errors and the tail, might still be ~3,000 tokens, so this ceiling trims it back to ~2,000 and leaves an expandable marker for the rest. Lower it to save more tokens (but cause more "fetch the rest" round-trips); raise it to keep more in memory per turn (but pay more). (Default: `2000`)
+- **`DISTILL_MIN_TOKENS`** The **floor**: any tool result *smaller* than this is left completely alone, because it's too small to be worth shrinking. Shrinking tiny outputs costs a local-model call and risks garbling a filename, for almost no saving. **`500` ≈ ~2,000 characters ≈ ~50 lines of code ≈ ~375 words.** *Example:* a directory listing of 15 files (~150 tokens), or a 40-line config file (~450 tokens), is under 500, so it passes through untouched. In short: under the floor = untouched; between the floor and the ceiling = shrunk to fit; over the ceiling after shrinking = trimmed. (Default: `500`)
+- **`KEEP_RECENT_TOOL_TURNS`** The gate always keeps the *most recent* tool results in full, even if they're large, because whatever the AI just fetched is almost certainly still needed for its next step. Only *older* results become candidates for shrinking or removal. With `2`, the result from this step and the one before it stay complete; something fetched six steps ago (and untouched since) can be shrunk. Higher = safer but fewer savings; lower = more aggressive. (Default: `2`)
+- **`ELISION_MAX_ENTRIES`** Whenever the gate shrinks or drops a tool result, it stashes the **original** in a small local database so the AI can retrieve exactly what was trimmed without re-running the tool. This is the maximum number of originals kept; past it, the oldest are deleted. Higher = more originals available for cheap retrieval (more disk used); lower = less disk, but retrieving an evicted original means re-running the original tool. (This stash only ever holds trimmed tool output never your usage or cost data.) (Default: `5000`)
+- **`ELISION_RETENTION_DAYS`** How long a stashed original is kept before it's automatically deleted. `180` is about six months, which is deliberately generous in practice a stashed original is almost always re-fetched within minutes, so the disk limit below usually matters more. Lower it (e.g. `30`) if you'd rather rely mainly on the size limit. (Default: `180`)
+- **`ELISION_MAX_MB`** The disk budget for that stash, in megabytes. When it's exceeded, the least-recently-used originals are deleted first. This is usually the limit that actually kicks in (before the six-month age). (Default: `500`)
+
+### Step 8 Learning which requests to handle locally
+*The gate can answer a request two ways: the free local AI, or the paid cloud AI. It tries local first, the verifier checks the answer, and it falls back to cloud only if the answer isn't good enough. These settings let the gate learn which kinds of requests the local AI is genuinely good at, so it stops wasting attempts on the kinds it usually fails while still occasionally re-testing.*
+
+- **`ROUTING_TUNE`** Turns that learning on or off. `off` = always try local first, regardless of past results. `on` = skip local for categories of request the local AI has been failing, and send those straight to cloud. (`on` / `off`)
+- **`ROUTING_TUNE_WINDOW`** How many recent requests (per category) it looks back over when measuring the local AI's success rate. Larger = a smoother, slower-to-change picture; smaller = adapts faster but is noisier (a couple of flukes sway it more). (Default: `20`)
+- **`ROUTING_TUNE_MIN_SAMPLES`** The minimum number of past requests needed for a category before the gate is allowed to act on its success rate. This stops it deciding "local is bad at this" off one or two data points. (Default: `8`)
+- **`ROUTING_TUNE_THRESHOLD`** The local success rate *below which* the gate stops trying local for a category and goes straight to cloud. `0.5` means: if the local AI succeeds less than half the time for this kind of request, skip it. Higher (e.g. `0.7`) = stricter, sends more to the paid cloud (more reliable, costs more); lower (e.g. `0.3`) = keeps trying local (cheaper, but more failed attempts that then escalate). (Default: `0.5`)
+- **`ROUTING_TUNE_EXPLORE_RATE`** Even for categories it has learned to skip, the gate deliberately tries local this fraction of the time, to keep learning (a category might have improved, or was judged on stale data). This is the classic "explore vs. stick with what works" dial. `0.15` = it explores about 15% of the time. Higher = adapts faster but runs more risky trials; lower = more conservative and slower to adapt. (Default: `0.15`)
+
+---
+
 ## Appendix C: RAM-by-Machine Model Table
 
 Selecting the right local models is crucial for performance. As a rule of thumb, you should configure your `.env` models based on your available system RAM.
@@ -223,7 +331,7 @@ If you experience high memory pressure, models being evicted (one model constant
 Memory = Model Weights + (NUM_CTX × KV-Cache) × Models Loaded
 ```
 
-**Dropping the brain model to a 7B is exactly the right lever, and yes it'll cut RAM. But don't just hand-edit `NUM_CTX` to a smaller number and call it done — memory is model weights + (`NUM_CTX` × KV-cache) × models loaded.**
+**Dropping the brain model to a 7B is exactly the right lever, and yes it'll cut RAM. But don't just hand-edit `NUM_CTX` to a smaller number and call it done memory is model weights + (`NUM_CTX` × KV-cache) × models loaded.**
 
 While this example shows dropping from a 9B (or 14B) model to a 7B model, this principle is a general rule that applies to all RAM capacities:
 

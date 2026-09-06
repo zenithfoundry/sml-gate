@@ -11,7 +11,7 @@ jest.unstable_mockModule('../../src/config.js', () => ({
 
 // Mock pipeline
 jest.unstable_mockModule('../../src/mcp-gate/pipeline.js', () => ({
-  conditionPrompt: jest.fn(async (text: string, task: string, rootUri?: string) => {
+  conditionPrompt: jest.fn(async (text: string, task: string, rootUri?: string, toolName?: string, args?: any) => {
     // Mock conditioning that adds Open questions and preserves MUST
     return text.replace('Long boring text', '') + '\n\n## Open questions\n- Question 1';
   })
@@ -63,7 +63,7 @@ describe('mcp-gate server (proxy mode)', () => {
       params: req.params
     }, CallToolResultSchema);
 
-    expect(conditionPrompt).toHaveBeenCalledWith(originalText, 'test task', undefined);
+    expect(conditionPrompt).toHaveBeenCalledWith(originalText, 'test task', undefined, 'get_skill', { task: 'test task' });
 
     const conditionedText = result.content[0].text;
     expect(conditionedText.length).toBeLessThan(originalText.length + 30); // account for Open questions

@@ -63,7 +63,12 @@
     "ledger:reset": "rm -f output/ledger.sqlite output/ledger.sqlite-wal output/ledger.sqlite-shm output/deferral_curve.svg output/leaderboard.md",
     "ledger:wipe-langfuse": "tsx src/ledger/wipe-langfuse.ts",
     "langfuse:wipe": "tsx src/ledger/wipe-langfuse.ts",
-    "langfuse:setup-dashboard": "tsx src/ledger/setup-dashboard.ts"
+    "langfuse:setup-dashboard": "tsx src/ledger/setup-dashboard.ts",
+    "elision:stats": "node scripts/elision-clean.mjs --stats",
+    "elision:clean": "node scripts/elision-clean.mjs --interactive",
+    "elision:clean:dry": "node scripts/elision-clean.mjs --older-than 180d --dry-run",
+    "elision:clean:old": "node scripts/elision-clean.mjs --older-than 180d",
+    "elision:clean:all": "node scripts/elision-clean.mjs --all"
   },
   "dependencies": {
     "@langfuse/client": "^5.11.0",

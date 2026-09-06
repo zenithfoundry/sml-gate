@@ -1,7 +1,15 @@
 import fs from 'fs/promises';
 import { CONFIG } from '../config.js';
-import { withSlmTimeout } from '../models/helpers.js';
 
+/**
+ * A rigid set of baseline RegExp patterns used to identify lines that MUST NEVER be dropped
+ * during local offline Small Language Model (SLM) contextual compression.
+ * 
+ * The system ensures that any line matching these patterns is explicitly preserved and shielded 
+ * via placeholder substitution before handing the text to the SLM. This guarantees that 
+ * critical structural integrity, hard requirements, and specific directives survive the 
+ * lossy distillation process.
+ */
 export const BUILTIN_PATTERNS: RegExp[] = [
   // requirement keywords
   /.*(?:MUST|MUST NOT|SHALL|REQUIRED|SHOULD NOT|NEVER|ALWAYS|DO NOT|MANDATORY|PROHIBITED|IMPORTANT|CRITICAL|WARNING|CAUTION).*/i,
@@ -25,6 +33,15 @@ export const BUILTIN_PATTERNS: RegExp[] = [
   /^---/,
 ];
 
+/**
+ * Attempts to compile a regular expression string into an executable RegExp object.
+ * It first attempts to use `re2` (a fast, linear-time regex engine safe against ReDoS attacks) 
+ * if installed. If `re2` is missing or rejects the pattern (e.g., due to unsupported features 
+ * like complex lookaheads), it gracefully falls back to the native V8 RegExp engine.
+ *
+ * @param pattern - The raw regular expression string to compile
+ * @returns The compiled RegExp instance, or null if the pattern is fatally invalid
+ */
 async function compilePattern(pattern: string): Promise<RegExp | null> {
   let Re2: typeof RegExp | undefined;
   try {
@@ -50,6 +67,14 @@ async function compilePattern(pattern: string): Promise<RegExp | null> {
   }
 }
 
+/**
+ * Constructs the aggregate array of preservation Regex patterns for the current session.
+ * Depending on the configuration (`DISTILL_PRESERVE_MODE`), it will either:
+ * - 'extend': Combine `BUILTIN_PATTERNS`, user-defined JSON patterns, and adapter-specific patterns.
+ * - 'replace': Ignore `BUILTIN_PATTERNS` entirely, relying only on user/adapter specifications.
+ *
+ * @returns A promise resolving to the final array of compiled RegExp patterns
+ */
 export async function buildPreserveList(): Promise<RegExp[]> {
   let patterns: RegExp[] = [];
   const mode = CONFIG.DISTILL_PRESERVE_MODE || 'extend';
@@ -58,6 +83,7 @@ export async function buildPreserveList(): Promise<RegExp[]> {
     patterns = [...BUILTIN_PATTERNS];
   }
 
+  // Load custom preservation patterns defined in an external JSON file by the user
   if (CONFIG.DISTILL_PRESERVE_PATH) {
     try {
       const data = await fs.readFile(CONFIG.DISTILL_PRESERVE_PATH, 'utf-8');
@@ -75,12 +101,14 @@ export async function buildPreserveList(): Promise<RegExp[]> {
     }
   }
 
+  // Optionally load tech-lead-stack patterns if running in decoupled integration mode
   if (CONFIG.TLS_ADAPTER) {
     try {
       // Guarded dynamic import
-      // @ts-ignore - Decoupling: adapter may not exist
+      // @ts-ignore - Decoupling: adapter may not exist in pure MCP-gate configurations
       const adapter = await import('../adapters/tech-lead-stack.js');
       if (adapter.tlsPreservePatterns) {
+        console.log("DEBUG TLS loaded patterns:", adapter.tlsPreservePatterns);
         patterns.push(...adapter.tlsPreservePatterns);
       }
     } catch (e) {
@@ -91,73 +119,4 @@ export async function buildPreserveList(): Promise<RegExp[]> {
   return patterns;
 }
 
-export async function distill(
-  slm: (text: string, task?: string) => Promise<string>,
-  text: string,
-  task: string | undefined,
-  preservePatterns: RegExp[]
-): Promise<string> {
-  const lines = text.split('\n');
-  const preserved = new Map<string, string>();
-  const modifiedLines: string[] = [];
-  
-  let preservedCount = 0;
-  let nonBlankCount = 0;
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line.trim().length > 0) nonBlankCount++;
-
-    const isPreserved = preservePatterns.some(p => p.test(line));
-    if (isPreserved) {
-      const placeholder = `⟦PRESERVE_${i}⟧`;
-      preserved.set(placeholder, line);
-      modifiedLines.push(placeholder);
-      preservedCount++;
-    } else {
-      modifiedLines.push(line);
-    }
-  }
-
-  if (nonBlankCount > 0 && preservedCount / nonBlankCount > 0.7) {
-    console.warn('[distill] Warning: distill_low_yield - more than 70% of lines are preserved. Compression may be ineffective.');
-  }
-
-  const textToCompress = modifiedLines.join('\n');
-  const compressed = await withSlmTimeout(slm(textToCompress, task), 'distill', CONFIG.SLM_TIMEOUT_MS);
-
-  // Restore placeholders programmatically
-  let finalText = compressed;
-  for (const [placeholder, originalLine] of preserved.entries()) {
-    if (finalText.includes(placeholder)) {
-      finalText = finalText.replace(placeholder, originalLine);
-    } else {
-      // Fallback matching in case model normalized brackets (e.g. [PRESERVE_1], __PRESERVE_1__, etc.)
-      const match = placeholder.match(/PRESERVE_(\d+)/);
-      if (match) {
-        const idx = match[1];
-        const altRegex = new RegExp(`(?:⟦|\\[|__|\\()\\s*PRESERVE_${idx}\\s*(?:⟧|\\]|__|\\))`, 'g');
-        if (altRegex.test(finalText)) {
-          finalText = finalText.replace(altRegex, originalLine);
-        }
-      }
-    }
-  }
-
-
-
-  // Assert every preserved line is actually in the final output
-  let missingLines: string[] = [];
-  for (const originalLine of preserved.values()) {
-    if (!finalText.includes(originalLine)) {
-      missingLines.push(originalLine);
-    }
-  }
-
-  if (missingLines.length > 0) {
-    console.warn(`[distill] Warning: distill_fallback - SLM omitted ${missingLines.length} preserved lines. Returning original text.`);
-    return text;
-  }
-
-  return finalText;
-}

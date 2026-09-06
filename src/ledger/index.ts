@@ -32,11 +32,14 @@ import path from 'node:path';
 
 export function getDb(): Database.Database {
   if (!db) {
-    const dir = path.dirname(CONFIG.LEDGER_PATH);
+    console.log("DEBUG getDb CONFIG keys:", Object.keys(CONFIG || {}));
+    console.log("DEBUG getDb CONFIG.LEDGER_PATH:", typeof CONFIG.LEDGER_PATH, CONFIG.LEDGER_PATH);
+    const ledgerPath = CONFIG.LEDGER_PATH || './output/ledger.sqlite';
+    const dir = path.dirname(ledgerPath);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
-    db = new Database(CONFIG.LEDGER_PATH);
+    db = new Database(ledgerPath);
     db.pragma('journal_mode = WAL');
     db.exec(`
       CREATE TABLE IF NOT EXISTS events (
@@ -73,9 +76,100 @@ export function getDb(): Database.Database {
         payload TEXT,
         synced INTEGER DEFAULT 0
       );
+
+      CREATE TABLE IF NOT EXISTS elision_cache (
+        id TEXT PRIMARY KEY,
+        tool_name TEXT,
+        args TEXT,
+        original_text TEXT,
+        ranges TEXT,
+        content_hash TEXT,
+        created_at TEXT,
+        last_accessed_at TEXT,
+        size_bytes INTEGER
+      );
     `);
+
+    // Automatic cleanup (startup sweep)
+    const retentionDays = CONFIG.ELISION_RETENTION_DAYS ?? 180;
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
+    db.prepare(`DELETE FROM elision_cache WHERE created_at < ?`).run(cutoffDate.toISOString());
   }
   return db;
+}
+
+export interface ElisionRecord {
+  id: string;
+  tool_name: string;
+  args: string; // JSON
+  original_text: string;
+  ranges: string; // JSON
+  content_hash: string;
+  created_at: string;
+  last_accessed_at: string;
+  size_bytes: number;
+}
+
+export function writeElision(record: Omit<ElisionRecord, 'created_at' | 'last_accessed_at'>) {
+  const ts = new Date().toISOString();
+  
+  // Size cap constraint
+  const maxMb = CONFIG.ELISION_MAX_MB ?? 500;
+  const maxBytes = maxMb * 1024 * 1024;
+  const db = getDb();
+  
+  // Start a transaction for the write + eviction
+  const transaction = db.transaction(() => {
+    const insertStmt = db.prepare(`
+      INSERT OR REPLACE INTO elision_cache (
+        id, tool_name, args, original_text, ranges, content_hash, created_at, last_accessed_at, size_bytes
+      ) VALUES (
+        @id, @tool_name, @args, @original_text, @ranges, @content_hash, @created_at, @last_accessed_at, @size_bytes
+      )
+    `);
+    
+    insertStmt.run({
+      ...record,
+      created_at: ts,
+      last_accessed_at: ts
+    });
+
+    // Evict oldest by last_accessed_at if we exceed max size
+    db.prepare(`
+      DELETE FROM elision_cache 
+      WHERE id IN (
+        SELECT id FROM (
+          SELECT id, sum(size_bytes) OVER (ORDER BY last_accessed_at DESC) as running_total
+          FROM elision_cache
+        ) WHERE running_total > ?
+      )
+    `).run(maxBytes);
+  });
+
+  transaction();
+}
+
+export function getElision(id: string): ElisionRecord | null {
+  const db = getDb();
+  const row = db.prepare(`SELECT * FROM elision_cache WHERE id = ?`).get(id) as ElisionRecord | undefined;
+  
+  if (row) {
+    // Lazy expiry check
+    const retentionDays = CONFIG.ELISION_RETENTION_DAYS ?? 180;
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
+    
+    if (new Date(row.created_at) < cutoffDate) {
+      db.prepare(`DELETE FROM elision_cache WHERE id = ?`).run(id);
+      return null;
+    }
+
+    db.prepare(`UPDATE elision_cache SET last_accessed_at = ? WHERE id = ?`).run(new Date().toISOString(), id);
+    return row;
+  }
+  
+  return null;
 }
 
 export function writeEvent(e: LedgerEvent) {

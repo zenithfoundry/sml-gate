@@ -281,7 +281,7 @@ export async function processPipeline(
   let compressedReq = { ...internalReq };
   
   if (routePolicy !== 'raw') {
-    compressedReq.messages = compressContext(messages);
+    compressedReq.messages = await compressContext(messages);
     result.route = 'forward_compressed';
   } else {
     result.route = 'forward_raw';

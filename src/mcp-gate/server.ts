@@ -54,50 +54,158 @@ export async function createServer() {
     }
 
     server.setRequestHandler(ListToolsRequestSchema, async () => {
-      if (!downstreamClient) return { tools: [] };
-      const res = await downstreamClient.request({ method: "tools/list" }, ListToolsResultSchema);
-      return res;
+      let tools: any[] = [];
+      if (downstreamClient) {
+        const res = await downstreamClient.request({ method: "tools/list" }, ListToolsResultSchema);
+        tools = res.tools || [];
+      }
+      
+      // Advertise expand_elision
+      tools.push({
+        name: "expand_elision",
+        description: "Expand a previously elided block of text using its elisionId",
+        inputSchema: {
+          type: "object",
+          properties: {
+            elisionId: { type: "string" },
+            range: { 
+              type: "object", 
+              properties: {
+                startLine: { type: "number" },
+                endLine: { type: "number" }
+              }
+            }
+          },
+          required: ["elisionId"]
+        }
+      });
+      return { tools };
     });
 
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      if (!downstreamClient) throw new Error("No downstream client");
       const name = request.params.name;
-      // Intercept skill execution
-      if (name.startsWith('get_skill') || name === 'condition_prompt') {
-        const task = typeof request.params.arguments?.task === 'string' ? request.params.arguments.task : 'Unknown task';
+      const args = request.params.arguments;
+      const task = typeof args?.task === 'string' ? args.task : 'Unknown task';
+
+      if (name === "expand_elision") {
+        const elisionId = args?.elisionId as string;
+        const range = args?.range as any;
         
-        // Pass request unchanged downstream
-        const result = await downstreamClient.request({
-          method: "tools/call",
-          params: request.params
-        }, CallToolResultSchema);
+        if (!elisionId) throw new Error("elisionId is required");
         
-        // Extract text from result content
-        let skillText = '';
-        if (result.content && Array.isArray(result.content)) {
-          const textBlock = result.content.find((c: any) => c.type === 'text');
-          if (textBlock && typeof (textBlock as any).text === 'string') {
-            skillText = (textBlock as any).text;
+        // Dynamic import to avoid circular dependency if any
+        const { getElision, writeElision } = await import('../ledger/index.js');
+        const { estimateTokens, formatElisionMarker, computeElisionId } = await import('../utils/elision.js');
+        const crypto = await import('node:crypto');
+        const record = getElision(elisionId);
+        
+        if (record) {
+          // If it's a file read, we should theoretically re-read if hash changed, but we can't easily read here without downstreamClient calling the exact same tool.
+          // Let's check if downstreamClient is available to re-run
+          let textToReturn = record.original_text;
+          
+          if (downstreamClient && ['read_file', 'view_file'].some(t => record.tool_name.includes(t))) {
+             try {
+                const result = await downstreamClient.request({
+                  method: "tools/call",
+                  params: { name: record.tool_name, arguments: JSON.parse(record.args) }
+                }, CallToolResultSchema);
+                
+                let newerText = '';
+                if (result.content && Array.isArray(result.content)) {
+                  const textBlock = result.content.find((c: any) => c.type === 'text');
+                  if (textBlock && typeof (textBlock as any).text === 'string') {
+                    newerText = (textBlock as any).text;
+                  }
+                }
+                const newHash = crypto.createHash('sha256').update(newerText).digest('hex');
+                if (newHash !== record.content_hash) {
+                   textToReturn = newerText;
+                   // Update cache with new text
+                   writeElision({ ...record, original_text: newerText, content_hash: newHash, size_bytes: Buffer.byteLength(newerText) });
+                }
+             } catch(e) {
+                // ignore
+             }
           }
+
+          const lines = textToReturn.split('\n');
+          let startLine = 0;
+          let endLine = lines.length - 1;
+
+          if (range && typeof range.startLine === 'number' && typeof range.endLine === 'number') {
+             startLine = Math.max(0, range.startLine);
+             endLine = Math.min(lines.length - 1, range.endLine);
+          } else {
+             // Try to extract first elided region if possible, else return all
+             const parsedRanges = JSON.parse(record.ranges || '{}');
+             if (parsedRanges.startLine !== undefined) {
+               startLine = parsedRanges.startLine;
+               endLine = parsedRanges.endLine;
+             }
+          }
+          
+          let expandedText = lines.slice(startLine, endLine + 1).join('\n');
+          const maxTokens = CONFIG.DISTILL_MAX_TOKENS || 2000;
+          
+          if (estimateTokens(expandedText) > maxTokens) {
+            const keepHead = Math.floor((maxTokens * 3.5) / 100);
+            const expLines = expandedText.split('\n');
+            const headLines = expLines.slice(0, keepHead);
+            const tailLines = expLines.slice(-keepHead);
+            const elidedCount = expLines.length - (keepHead * 2);
+            
+            const newId = computeElisionId(record.tool_name, JSON.parse(record.args), textToReturn); // Keep original text to allow further expansion
+            writeElision({
+              id: newId,
+              tool_name: record.tool_name,
+              args: record.args,
+              original_text: textToReturn,
+              ranges: JSON.stringify({startLine: 0, endLine: lines.length - 1}),
+              content_hash: crypto.createHash('sha256').update(textToReturn).digest('hex'),
+              size_bytes: Buffer.byteLength(textToReturn)
+            });
+            
+            expandedText = headLines.join('\n') + 
+                           formatElisionMarker(newId, elidedCount, startLine + keepHead, endLine - keepHead) + 
+                           tailLines.join('\n');
+          }
+
+          return { content: [{ type: "text", text: expandedText }] };
+        } else {
+          // Missing or expired, try to re-run if we have args
+          if (!downstreamClient) throw new Error("Elision not found and no downstream client to re-run.");
+          // We don't have tool_name/args if it's missing from cache and user only provided elisionId.
+          throw new Error(`Elision ${elisionId} not found in cache. Cannot recover without original tool arguments.`);
         }
-        if (!skillText) {
-          skillText = JSON.stringify(result.content);
-        }
-        
-        // Condition the text
-        const conditioned = await conditionPrompt(skillText, task, rootUri);
-        
-        // Return conditioned result
-        return {
-          content: [{ type: "text", text: conditioned }]
-        };
-      } else {
-        // Transparent proxy
-        return await downstreamClient.request({
-          method: "tools/call",
-          params: request.params
-        }, CallToolResultSchema);
       }
+
+      if (!downstreamClient) throw new Error("No downstream client");
+      
+      // Pass request unchanged downstream
+      const result = await downstreamClient.request({
+        method: "tools/call",
+        params: request.params
+      }, CallToolResultSchema);
+      
+      // Extract text from result content
+      let toolText = '';
+      if (result.content && Array.isArray(result.content)) {
+        const textBlock = result.content.find((c: any) => c.type === 'text');
+        if (textBlock && typeof (textBlock as any).text === 'string') {
+          toolText = (textBlock as any).text;
+        }
+      }
+      if (!toolText) {
+        toolText = JSON.stringify(result.content);
+      }
+      
+      // Intercept and distill ALL tool calls
+      const conditioned = await conditionPrompt(toolText, task, rootUri, name, args);
+      
+      return {
+        content: [{ type: "text", text: conditioned }]
+      };
     });
 
   } else {

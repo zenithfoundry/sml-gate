@@ -8,8 +8,9 @@ import { cacheGet, cacheSet, writeEvent } from '../ledger/index.js';
 import { handleSlmError } from '../models/helpers.js';
 import { SLM } from '../models/slm.js';
 import { resolveAmbiguities } from '../resolver/index.js';
-import { buildPreserveList, distill } from './distill.js';
+import { distillToolResult } from '../utils/elision.js';
 import { scan } from './ground.js';
+import { buildPreserveList } from './patterns.js';
 
 
 let slmClient: ReturnType<typeof createSlmClient>;
@@ -44,7 +45,7 @@ async function getPreserveList(): Promise<RegExp[]> {
  * @param {string} [rootUri] - Optional URI of the workspace root to enable grounding and file context extraction.
  * @returns {Promise<string>} The conditioned and enriched prompt ready for the cloud model.
  */
-export async function conditionPrompt(text: string, task: string, rootUri?: string): Promise<string> {
+export async function conditionPrompt(text: string, task: string, rootUri?: string, toolName?: string, args?: any): Promise<string> {
   const startTime = Date.now();
   
   if (!slmClient) {
@@ -53,7 +54,7 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
   }
 
   // 1. Cache Check
-  const hash = crypto.createHash('sha256').update(text + '||' + task + '||' + (rootUri || '')).digest('hex');
+  const hash = crypto.createHash('sha256').update(text + '||' + task + '||' + (rootUri || '') + '||' + (toolName || '')).digest('hex');
   const cacheKey = `condition_${hash}`;
   const cached = cacheGet(cacheKey);
   if (cached) {
@@ -80,7 +81,7 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
   let conditioned = text;
   let distillTimeoutFlag = false;
   try {
-    conditioned = await distill(slmFunc, text, task, preserveList);
+    conditioned = await distillToolResult(slmFunc, text, task, toolName, args, preserveList);
   } catch (err: any) {
     handleSlmError(err, 'pipeline:distill', CONFIG.SLM_GATE_MODEL);
     distillTimeoutFlag = true;
