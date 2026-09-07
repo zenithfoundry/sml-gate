@@ -1,3 +1,4 @@
+import { describe, it, expect } from '@jest/globals';
 import { parseOpenAIRequest, buildOpenAIRequest } from '../../src/llm-gate/formats/openai.js';
 import { parseAnthropicRequest, buildAnthropicRequest } from '../../src/llm-gate/formats/anthropic.js';
 
@@ -48,7 +49,7 @@ describe('Anthropic Format', () => {
     internal.messages.unshift({ role: 'system', content: 'Should be stripped' });
     
     const outbound = buildAnthropicRequest(internal);
-    expect(outbound.system).toBe('Top level system');
+    expect(outbound.system).toEqual([{ type: 'text', text: 'Top level system', cache_control: { type: 'ephemeral' } }]);
     expect(outbound.messages.length).toBe(2);
     expect(outbound.max_tokens).toBe(4096); // default enforced
     expect(outbound.messages[0].role).toBe('user');

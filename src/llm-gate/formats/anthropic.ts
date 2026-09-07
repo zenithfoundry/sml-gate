@@ -50,12 +50,27 @@ export function buildAnthropicRequest(internal: InternalRequest): any {
     max_tokens: internal.maxTokens || 4096, // REQUIRED for Anthropic
   };
   
+  // 1. Breakpoint on system block
   if (internal.system) {
-    req.system = internal.system;
+    req.system = [{ type: 'text', text: internal.system, cache_control: { type: 'ephemeral' } }];
   }
   
+  // 2. Breakpoint on last tool
   if (internal.tools && internal.tools.length > 0) {
-    req.tools = internal.tools;
+    req.tools = [...internal.tools];
+    req.tools[req.tools.length - 1] = {
+      ...req.tools[req.tools.length - 1],
+      cache_control: { type: 'ephemeral' }
+    };
+  }
+  
+  // 3. Breakpoint on historical message (skip current turn)
+  if (req.messages.length >= 3) {
+    // A standard turn is user -> assistant -> user, so length - 3 skips the current uncompleted turn
+    const targetIdx = req.messages.length - 3;
+    req.messages[targetIdx].content = [
+      { type: 'text', text: req.messages[targetIdx].content as string, cache_control: { type: 'ephemeral' } }
+    ];
   }
   
   if (internal.stream) {
