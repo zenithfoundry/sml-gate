@@ -37,6 +37,7 @@
     "slm-gate": "./dist/cli.js"
   },
   "scripts": {
+    "slm-gate": "tsx src/cli.ts",
     "build": "tsc",
     "dev": "tsx src/cli.ts",
     "config": "node --import tsx src/config.ts",
