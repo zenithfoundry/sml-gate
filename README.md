@@ -50,26 +50,27 @@ This tool distinguishes explicitly between two different downstream LLM layers y
 
 ## Quick Starts
 
-### 1. `mcp-gate` in front of Tech-Lead-Stack (Primary, Subscription-Friendly Path)
+`slm-gate` is downstream-agnostic. It works with **any** MCP server or toolbox (or none), and Tech-Lead-Stack is just one optional thing you can place behind it. Pick the path that matches how your editor connects:
 
-This path sits between your IDE and the tech-lead-stack server. It intercepts tool payloads (like `read_file` or `execute_command`) and condenses them, meaning your Editor's subscription model receives far less token spam.
+### 1. `mcp-gate` in front of any MCP server (Primary, Subscription-Friendly Path)
+This path sits between your IDE and **any** downstream MCP server. It intercepts tool payloads (like `read_file` or `execute_command`) and condenses them, so your editor's subscription model receives far less token spam. The downstream can be Tech-Lead-Stack, your own toolbox, or any third-party MCP server.
 
-1. Install tech-lead-stack and compile it (`pnpm run mcp:build`).
+1. Have your downstream MCP server ready (its launch command or path).
 2. Run `slm-gate serve --layer mcp`.
-3. In your `.env`, set `TLS_ADAPTER=on` and point `DOWNSTREAM_MCP` to the TLS build path.
+3. In your `.env`, point `DOWNSTREAM_MCP` at that server. Leave `TLS_ADAPTER=off` for a generic downstream (the distillation and compression apply to every downstream regardless).
 4. Add `slm-gate` to your editor (see `configs/` for client-specific snippets).
 
-### 2. Standalone `mcp-gate` (Condition Prompt Only)
+> **Using Tech-Lead-Stack as the downstream?** It's fully optional, but if that's your setup: install and compile it first (`pnpm run mcp:build`), point `DOWNSTREAM_MCP` at the TLS build path, and set `TLS_ADAPTER=on` to enable handling tuned for TLS's payload shapes.
 
-If you don't use tech-lead-stack, you can still use `mcp-gate` as a standalone MCP server that exposes a single `condition_prompt` tool.
+### 2. Standalone `mcp-gate` (Condition Prompt Only)
+If you have no downstream MCP server, you can still use `mcp-gate` as a standalone MCP server that exposes a single `condition_prompt` tool.
 
 1. Leave `DOWNSTREAM_MCP` blank in your `.env`.
 2. Run `slm-gate serve --layer mcp`.
 3. Add `slm-gate` as an MCP server to your editor.
 
 ### 3. `llm-gate` (Model Endpoint Override)
-
-For clients that allow overriding the base URL of the model itself (like Cursor, Cline, or Claude Code via `ANTHROPIC_BASE_URL`), `llm-gate` can intercept the chat stream.
+For clients that allow overriding the base URL of the model itself (like Cursor, Cline, or Claude Code via `ANTHROPIC_BASE_URL`), `llm-gate` can intercept the chat stream. This path operates at the model layer and is independent of MCP or any toolbox.
 
 1. Run `slm-gate serve --layer llm`.
 2. Set your editor's API Base URL to `http://localhost:8787`.
