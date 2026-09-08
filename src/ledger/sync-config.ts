@@ -51,6 +51,21 @@ export async function syncScoreConfigs(): Promise<void> {
       maxValue: 100,
       minValue: 0,
       description: 'Accuracy of the SLM gate output against the expected cloud model standard (%)'
+    },
+    {
+      name: 'cycle_minutes_saved_chatgpt',
+      dataType: 'NUMERIC',
+      description: 'Extra minutes of a 3h ChatGPT window from SLM savings'
+    },
+    {
+      name: 'cycle_minutes_saved_claude',
+      dataType: 'NUMERIC',
+      description: 'Extra minutes of a 5h Claude window from SLM savings'
+    },
+    {
+      name: 'cycle_minutes_saved_gemini',
+      dataType: 'NUMERIC',
+      description: 'Extra minutes of a 5h Gemini window from SLM savings'
     }
   ];
 
