@@ -336,7 +336,6 @@ export async function processPipeline(
 
   // Perform API request
   try {
-    console.log('DEBUG FETCH:', { fetchUrl, fetchHeaders: {...fetchHeaders, Authorization: `${fetchHeaders.Authorization.slice(7, 10)}***`}, fetchBody: JSON.stringify(fetchBody, null, 2) });
     const apiRes = await fetch(fetchUrl!, {
       method: 'POST',
       headers: fetchHeaders,

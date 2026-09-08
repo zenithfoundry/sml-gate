@@ -108,7 +108,6 @@ export async function buildPreserveList(): Promise<RegExp[]> {
       // @ts-ignore - Decoupling: adapter may not exist in pure MCP-gate configurations
       const adapter = await import('../adapters/tech-lead-stack.js');
       if (adapter.tlsPreservePatterns) {
-        console.log("DEBUG TLS loaded patterns:", adapter.tlsPreservePatterns);
         patterns.push(...adapter.tlsPreservePatterns);
       }
     } catch (e) {

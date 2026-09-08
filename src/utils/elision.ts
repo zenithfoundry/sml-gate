@@ -224,7 +224,6 @@ export async function distillToolResult(
 ): Promise<string> {
   const minTokens = CONFIG.DISTILL_MIN_TOKENS ?? 500;
   const maxTokens = CONFIG.DISTILL_MAX_TOKENS ?? 2000;
-  console.log("DEBUG elision CONFIG minTokens:", minTokens, "maxTokens:", maxTokens, "CONFIG.DISTILL_MIN_TOKENS:", CONFIG.DISTILL_MIN_TOKENS);
   const originalTokens = estimateTokens(text);
   
   // If small enough, bypass all logic
@@ -324,13 +323,10 @@ export async function distillToolResult(
 
   let finalText = processedText;
   
-  console.log("DEBUG Before SLM: tokens=", estimateTokens(finalText), "maxTokens=", maxTokens, "toolName=", toolName);
-  
   // SLM Semantic Fallback 
   // If the policy output remains oversized (and we are NOT processing raw file source codes which shouldn't be summarized contextually), 
   // we deploy the SLM loop with placeholder preservation guarantees.
   if (estimateTokens(finalText) > maxTokens && !['read_file', 'view_file'].some(t => (toolName||'').includes(t))) {
-    console.log("SLM FALLBACK TRIGGERED, maxTokens=", maxTokens);
     const slmLines = finalText.split('\n');
     const preserved = new Map<string, string>();
     const modifiedLines: string[] = [];

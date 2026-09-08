@@ -32,8 +32,6 @@ import path from 'node:path';
 
 export function getDb(): Database.Database {
   if (!db) {
-    console.log("DEBUG getDb CONFIG keys:", Object.keys(CONFIG || {}));
-    console.log("DEBUG getDb CONFIG.LEDGER_PATH:", typeof CONFIG.LEDGER_PATH, CONFIG.LEDGER_PATH);
     const ledgerPath = CONFIG.LEDGER_PATH || './output/ledger.sqlite';
     const dir = path.dirname(ledgerPath);
     if (!fs.existsSync(dir)) {
