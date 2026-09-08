@@ -21,6 +21,7 @@ interface SyncStats {
   actualCostUsd: number;
   costSavedUsd: number;
   tokensSaved: number;
+  baselineTokens: number;
   errors: number;
 }
 
@@ -59,6 +60,7 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
       actualCostUsd: 0,
       costSavedUsd: 0,
       tokensSaved: 0,
+      baselineTokens: 0,
       errors: 0,
     };
   }
@@ -74,6 +76,7 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
     actualCostUsd: 0,
     costSavedUsd: 0,
     tokensSaved: 0,
+    baselineTokens: 0,
     errors: 0,
   };
 
@@ -124,6 +127,7 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
       stats.baselineCostUsd += Number(meta.baseline_cost_usd || event.cost_usd || 0);
       stats.costSavedUsd += Number(meta.cost_saved_usd || 0);
       stats.tokensSaved += Number(meta.tokens_saved || 0);
+      stats.baselineTokens += Number(meta.baseline_tokens || 0);
 
       if (event.is_local_call) {
         stats.localCalls++;
@@ -198,8 +202,64 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
     await flushBatch();
   }
 
+  const savingsFraction = stats.baselineTokens > 0 ? stats.tokensSaved / stats.baselineTokens : 0;
+  const minsChatgpt = Math.round(CONFIG.CYCLE_MINUTES_CHATGPT! * savingsFraction);
+  const minsClaude = Math.round(CONFIG.CYCLE_MINUTES_CLAUDE! * savingsFraction);
+  const minsGemini = Math.round(CONFIG.CYCLE_MINUTES_GEMINI! * savingsFraction);
+
   if (!dryRun) {
     process.stdout.write(`\rProgress: ${stats.syncedTraces}/${rows.length} traces synced.\n\n`);
+
+    if (hasClient) {
+      const summaryTraceId = crypto.randomUUID();
+      const ts = new Date().toISOString();
+      batch.push({
+        id: crypto.randomUUID(),
+        type: 'trace-create',
+        timestamp: ts,
+        body: {
+          id: summaryTraceId,
+          name: 'slm-gate-cycle-summary',
+          timestamp: ts,
+        }
+      });
+      batch.push({
+        id: crypto.randomUUID(),
+        type: 'score-create',
+        timestamp: ts,
+        body: {
+          traceId: summaryTraceId,
+          name: 'cycle_minutes_saved_chatgpt',
+          value: minsChatgpt,
+          dataType: 'NUMERIC',
+        }
+      });
+      batch.push({
+        id: crypto.randomUUID(),
+        type: 'score-create',
+        timestamp: ts,
+        body: {
+          traceId: summaryTraceId,
+          name: 'cycle_minutes_saved_claude',
+          value: minsClaude,
+          dataType: 'NUMERIC',
+        }
+      });
+      batch.push({
+        id: crypto.randomUUID(),
+        type: 'score-create',
+        timestamp: ts,
+        body: {
+          traceId: summaryTraceId,
+          name: 'cycle_minutes_saved_gemini',
+          value: minsGemini,
+          dataType: 'NUMERIC',
+        }
+      });
+      await flushBatch();
+    }
+  } else {
+    console.log();
   }
 
   console.log('--- Sync Summary Table ---');
@@ -215,6 +275,9 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
     { Metric: 'Net Dollars Saved', Value: `$${stats.costSavedUsd.toFixed(4)}` },
     { Metric: 'Net Tokens Saved', Value: stats.tokensSaved.toLocaleString() },
     { Metric: 'Sync Errors', Value: stats.errors },
+    { Metric: 'Cycle Extends (ChatGPT)', Value: `~${minsChatgpt} mins` },
+    { Metric: 'Cycle Extends (Claude)', Value: `~${minsClaude} mins` },
+    { Metric: 'Cycle Extends (Gemini)', Value: `~${minsGemini} mins` },
   ]);
 
   return stats;

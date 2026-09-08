@@ -23,7 +23,12 @@ export function writeReport(
   arms: { allSlm: ArmStats, armA: ArmStats, armB: ArmStats, CIs: Record<string, [number, number]> },
   apiConfigured: boolean,
   totalTasks: number,
-  errorCount: number
+  errorCount: number,
+  options: {
+    cycleMinutesChatgpt: number;
+    cycleMinutesClaude: number;
+    cycleMinutesGemini: number;
+  }
 ) {
   const { allSlm, armA, armB, CIs } = arms;
 
@@ -79,15 +84,16 @@ export function writeReport(
       const outSavings = armA.outTokens - armB.outTokens;
       report += `At an accuracy $\\ge$ Arm A, Arm B saves **${tokenSavings.toLocaleString()} tokens** (${inSavings.toLocaleString()} in / ${outSavings.toLocaleString()} out) (**${tokenSavingsPct.toFixed(1)}% reduction**) over the evaluated dataset.\n`;
       
-      const extraMins3h = Math.round(180 * (Math.abs(tokenSavingsPct) / 100));
-      const extraMins5h = Math.round(300 * (Math.abs(tokenSavingsPct) / 100));
+      const extraMinsChatgpt = Math.round(options.cycleMinutesChatgpt * (Math.abs(tokenSavingsPct) / 100));
+      const extraMinsClaude = Math.round(options.cycleMinutesClaude * (Math.abs(tokenSavingsPct) / 100));
+      const extraMinsGemini = Math.round(options.cycleMinutesGemini * (Math.abs(tokenSavingsPct) / 100));
       const impactWord = tokenSavingsPct >= 0 ? 'Extends' : 'Reduces';
       
       report += `\n> **Real-World Impact (Subscription Caps):**\n`;
       report += `> *(Based on provider limits as of August 21, 2026)*\n`;
-      report += `> - **ChatGPT Plus** (3-hour window): ${impactWord} workflow by **~${extraMins3h} minutes**.\n`;
-      report += `> - **Claude Pro / Max** (5-hour window): ${impactWord} workflow by **~${extraMins5h} minutes**.\n`;
-      report += `> - **Gemini AI Pro / Ultra** (5-hour window): ${impactWord} workflow by **~${extraMins5h} minutes**.\n`;
+      report += `> - **ChatGPT Plus** (${options.cycleMinutesChatgpt / 60}-hour window): ${impactWord} workflow by **~${extraMinsChatgpt} minutes**.\n`;
+      report += `> - **Claude Pro / Max** (${options.cycleMinutesClaude / 60}-hour window): ${impactWord} workflow by **~${extraMinsClaude} minutes**.\n`;
+      report += `> - **Gemini AI Pro / Ultra** (${options.cycleMinutesGemini / 60}-hour window): ${impactWord} workflow by **~${extraMinsGemini} minutes**.\n`;
     } else {
       report += `Arm B did not achieve quality $\\ge$ Arm A on this dataset.\n`;
     }

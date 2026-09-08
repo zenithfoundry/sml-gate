@@ -77,6 +77,9 @@ const envSchema = z.object({
   LANGFUSE_PUBLIC_KEY: z.string().optional(),
   LANGFUSE_SECRET_KEY: z.string().optional(),
   LANGFUSE_HOST: z.string().optional(),
+  CYCLE_MINUTES_CHATGPT: parseInteger(180),
+  CYCLE_MINUTES_CLAUDE: parseInteger(300),
+  CYCLE_MINUTES_GEMINI: parseInteger(300),
 
   // STEP 6
   RESOLVER_CLOUD_TIER: parseBoolean(false),

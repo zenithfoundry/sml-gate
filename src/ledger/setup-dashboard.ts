@@ -52,6 +52,33 @@ async function setupDashboard(): Promise<void> {
       metrics: [{ measure: 'value', agg: 'avg' }],
       dimensions: [],
       filters: [{ type: 'string', column: 'name', operator: '=', value: 'accuracy_rate_pct' }],
+    },
+    {
+      name: 'Claude Cycle Extended (min)',
+      description: 'Extra minutes of a 5h Claude window from SLM savings',
+      view: 'scores-numeric',
+      chartType: 'NUMBER',
+      metrics: [{ measure: 'value', agg: 'avg' }],
+      dimensions: [],
+      filters: [{ type: 'string', column: 'name', operator: '=', value: 'cycle_minutes_saved_claude' }],
+    },
+    {
+      name: 'ChatGPT Cycle Extended (min)',
+      description: 'Extra minutes of a 3h ChatGPT window from SLM savings',
+      view: 'scores-numeric',
+      chartType: 'NUMBER',
+      metrics: [{ measure: 'value', agg: 'avg' }],
+      dimensions: [],
+      filters: [{ type: 'string', column: 'name', operator: '=', value: 'cycle_minutes_saved_chatgpt' }],
+    },
+    {
+      name: 'Gemini Cycle Extended (min)',
+      description: 'Extra minutes of a 5h Gemini window from SLM savings',
+      view: 'scores-numeric',
+      chartType: 'NUMBER',
+      metrics: [{ measure: 'value', agg: 'avg' }],
+      dimensions: [],
+      filters: [{ type: 'string', column: 'name', operator: '=', value: 'cycle_minutes_saved_gemini' }],
     }
   ];
 
@@ -73,22 +100,36 @@ async function setupDashboard(): Promise<void> {
 
   // 2. Create Dashboard
   console.log('\nCreating SLM Gate Dashboard...');
-  const dashboardRes = await fetch(`${baseUrl}/api/public/unstable/dashboards`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      name: 'SLM Gate Performance',
-      description: 'Comprehensive metrics tracking local SLM deferral rates, token savings, and quality.',
-    }),
-  });
-
-  if (!dashboardRes.ok) {
-    console.error(`Failed to create dashboard: ${await dashboardRes.text()}`);
-    return;
+  let dashboard;
+  const listRes = await fetch(`${baseUrl}/api/public/unstable/dashboards`, { headers });
+  if (listRes.ok) {
+    const listData = await listRes.json();
+    const existing = (listData.data || listData).find((d: any) => d.name === 'SLM Gate Performance');
+    if (existing) {
+      dashboard = existing;
+      console.log(`✓ Found existing dashboard: ${dashboard.name} (ID: ${dashboard.id})`);
+    }
   }
-  
-  const dashboard = await dashboardRes.json();
-  console.log(`✓ Created dashboard: ${dashboard.name} (ID: ${dashboard.id})`);
+
+  if (!dashboard) {
+    const dashboardRes = await fetch(`${baseUrl}/api/public/unstable/dashboards`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        name: 'SLM Gate Performance',
+        description: 'Comprehensive metrics tracking local SLM deferral rates, token savings, and quality.',
+      }),
+    });
+
+    if (!dashboardRes.ok) {
+      console.error(`Failed to create dashboard: ${await dashboardRes.text()}`);
+      return;
+    }
+    
+    dashboard = await dashboardRes.json();
+    console.log(`✓ Created NEW dashboard: ${dashboard.name} (ID: ${dashboard.id})`);
+    console.log(`\nNOTE: A NEW dashboard was created. If you already had an "SLM Gate Performance" dashboard, you may want to delete the old one in Langfuse to avoid duplicates.`);
+  }
 
   // 3. Attach Widgets to Dashboard
   console.log('\nPlacing widgets on dashboard...');
@@ -100,6 +141,9 @@ async function setupDashboard(): Promise<void> {
     { type: 'widget', widgetId: createdWidgets[1].id },
     { type: 'widget', widgetId: createdWidgets[2].id },
     { type: 'widget', widgetId: createdWidgets[3].id },
+    { type: 'widget', widgetId: createdWidgets[4].id },
+    { type: 'widget', widgetId: createdWidgets[5].id },
+    { type: 'widget', widgetId: createdWidgets[6].id },
   ];
 
   for (const [i, p] of placements.entries()) {
