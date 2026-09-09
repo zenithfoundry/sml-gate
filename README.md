@@ -329,6 +329,26 @@ export OLLAMA_MAX_LOADED_MODELS=2
 > - **24GB Mac**: `NUM_CTX=8192` is recommended to fit both models.
 > - **16GB Mac**: `NUM_CTX=4096` is recommended to fit both models.
 
+### 🍏 Best Practices for macOS/Homebrew Users
+
+When deploying Ollama on macOS via Homebrew (`brew install ollama`), developers face a severe configuration trap.
+
+> [!WARNING]
+> **The Configuration Trap:** Running `brew services restart ollama` aggressively overwrites the `~/Library/LaunchAgents/homebrew.mxcl.ollama.plist` file. This silently deletes any custom `EnvironmentVariables` you have manually added, resulting in aggressive model swapping and context truncation. Furthermore, Homebrew's native `.env` injection (via `~/.config/homebrew/services/`) is frequently ignored by the macOS LaunchDaemon for the Ollama formula.
+
+**The Solution:**
+To persistently apply critical environment variables for high-performance SLM routing without them being overwritten by Homebrew:
+1. Stop the brew service: `brew services stop ollama`
+2. Manually add your `EnvironmentVariables` dictionary to `~/Library/LaunchAgents/homebrew.mxcl.ollama.plist`.
+3. Natively load the daemon: `launchctl load ~/Library/LaunchAgents/homebrew.mxcl.ollama.plist`
+
+**Required Variables for this Repo:**
+- `OLLAMA_CONTEXT_LENGTH="8192"` (Ensures Ollama's global context matches the app's `NUM_CTX`)
+- `OLLAMA_KEEP_ALIVE="12h"` (Prevents unloaded models, ensuring warm latency)
+- `OLLAMA_MAX_LOADED_MODELS="2"` (or `1`, depending on VRAM capacity to prevent model swapping)
+
+*For further reading, refer to the [official Ollama FAQ on memory and concurrency](https://github.com/ollama/ollama/blob/main/docs/faq.md).*
+
 ### ⚠️ RAM Troubleshooting & Sizing Disclaimer: What to do if your RAM config is not working
 
 If you experience high memory pressure, models being evicted (one model constantly unloading to make room for another), sluggish system responsiveness, or out-of-memory errors, the following **MUST** be considered:

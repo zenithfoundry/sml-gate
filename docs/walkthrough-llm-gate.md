@@ -12,7 +12,7 @@
 The `llm-gate` is a small program that runs on your own computer. Instead of sending every request straight to an expensive paid API model, your chat client sends requests to `llm-gate` first. It answers the easy questions locally for free using your local model, and only forwards the hard ones to the paid model — saving you money.
 
 ### What you'll need before starting
-- [x] Ollama is installed and running on your machine.
+- [x] Ollama is installed and running on your machine. *(macOS/Homebrew users: See the [Best Practices for macOS/Homebrew Users](../README.md#best-practices-for-macoshomebrew-users) section in the main README to avoid memory issues and silent config overwrites.)*
 - [x] The models specified in your `.env` (like `qwen3:14b` and `qwen3:1.7b`) are already pulled in Ollama.
 - [x] The `CLOUD_*` values are filled out in your `.env` file with a valid API key.
 - [x] The project is built (you have run `pnpm run build`).
