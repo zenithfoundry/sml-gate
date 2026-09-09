@@ -2,6 +2,7 @@ import { config } from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { z } from 'zod';
+import { isValidPlanKey, getSubscriptionPlan, getValidPlanKeys } from './pricing/plans.js';
 
 // Load .env (if it exists) into process.env. Does not crash if missing.
 config();
@@ -77,9 +78,18 @@ const envSchema = z.object({
   LANGFUSE_PUBLIC_KEY: z.string().optional(),
   LANGFUSE_SECRET_KEY: z.string().optional(),
   LANGFUSE_HOST: z.string().optional(),
+  SUBSCRIPTION_PLAN: z.string().optional(),
+  PLAN_CLAUDE: z.string().optional(),
+  PLAN_CHATGPT: z.string().optional(),
+  PLAN_GEMINI: z.string().optional(),
+  AVG_TOKENS_PER_MESSAGE: parseInteger(1500),
+  GEMINI_STANDARD_TOKENS_PER_WINDOW: parseInteger(30000),
   CYCLE_MINUTES_CHATGPT: parseInteger(180),
   CYCLE_MINUTES_CLAUDE: parseInteger(300),
   CYCLE_MINUTES_GEMINI: parseInteger(300),
+  CYCLE_TOKENS_CHATGPT: parseInteger(0),
+  CYCLE_TOKENS_CLAUDE: parseInteger(0),
+  CYCLE_TOKENS_GEMINI: parseInteger(0),
 
   // STEP 6
   RESOLVER_CLOUD_TIER: parseBoolean(false),
@@ -123,6 +133,64 @@ const ramPresets: Record<string, { brain: string, gate: string }> = {
 
 const preset = ramPresets[parsedEnv.RAM_PRESET] || ramPresets['custom'];
 
+const resolvePlan = (provider: 'claude'|'chatgpt'|'gemini') => {
+  // 1. Raw override
+  const rawMinKey = `CYCLE_MINUTES_${provider.toUpperCase()}` as keyof typeof parsedEnv;
+  const rawTokKey = `CYCLE_TOKENS_${provider.toUpperCase()}` as keyof typeof parsedEnv;
+  
+  const rawMin = parsedEnv[rawMinKey] as number;
+  const rawTok = parsedEnv[rawTokKey] as number;
+
+  if (rawTok > 0) {
+    return {
+      windowMinutes: rawMin,
+      tokensPerWindow: rawTok,
+      isEstimate: false,
+      source: 'raw_override',
+      plan: 'raw_override'
+    };
+  }
+
+  // 2. PLAN_<P>
+  const planProviderKey = `PLAN_${provider.toUpperCase()}` as keyof typeof parsedEnv;
+  let planKey = parsedEnv[planProviderKey] as string | undefined;
+
+  // 3. SUBSCRIPTION_PLAN
+  if (!planKey && parsedEnv.SUBSCRIPTION_PLAN) {
+    if (parsedEnv.SUBSCRIPTION_PLAN.startsWith(provider)) {
+      planKey = parsedEnv.SUBSCRIPTION_PLAN;
+    }
+  }
+
+  // 4. Default
+  if (!planKey) {
+    if (provider === 'claude') planKey = 'claude-pro';
+    else if (provider === 'chatgpt') planKey = 'chatgpt-plus';
+    else if (provider === 'gemini') planKey = 'gemini-pro';
+  }
+
+  if (planKey && !isValidPlanKey(planKey)) {
+    throw new Error(`Invalid plan key '${planKey}' for ${provider}. Valid keys: ${getValidPlanKeys().join(', ')}`);
+  }
+
+  const resolved = getSubscriptionPlan(planKey!, parsedEnv.AVG_TOKENS_PER_MESSAGE, parsedEnv.GEMINI_STANDARD_TOKENS_PER_WINDOW);
+  return {
+    windowMinutes: resolved.windowMinutes,
+    tokensPerWindow: resolved.estTokensPerWindow,
+    isEstimate: resolved.isEstimate,
+    source: resolved.source,
+    plan: planKey
+  };
+};
+
+const claudePlan = resolvePlan('claude');
+const chatgptPlan = resolvePlan('chatgpt');
+const geminiPlan = resolvePlan('gemini');
+
+console.log(`[config] claude plan: ${claudePlan.plan} (windowMinutes: ${claudePlan.windowMinutes}, tokensPerWindow: ${claudePlan.tokensPerWindow}, isEstimate: ${claudePlan.isEstimate})`);
+console.log(`[config] chatgpt plan: ${chatgptPlan.plan} (windowMinutes: ${chatgptPlan.windowMinutes}, tokensPerWindow: ${chatgptPlan.tokensPerWindow}, isEstimate: ${chatgptPlan.isEstimate})`);
+console.log(`[config] gemini plan: ${geminiPlan.plan} (windowMinutes: ${geminiPlan.windowMinutes}, tokensPerWindow: ${geminiPlan.tokensPerWindow}, isEstimate: ${geminiPlan.isEstimate})`);
+
 export const CONFIG = Object.freeze({
   ...parsedEnv,
   ROOT_DIR,
@@ -130,6 +198,9 @@ export const CONFIG = Object.freeze({
   SLM_BRAIN_MODEL: parsedEnv.SLM_BRAIN_MODEL || preset.brain,
   SLM_GATE_MODEL: parsedEnv.SLM_GATE_MODEL || preset.gate,
   SLM_GATE_TESTING_MODEL: parsedEnv.SLM_GATE_TESTING_MODEL || parsedEnv.SLM_GATE_MODEL || preset.gate,
+  RESOLVED_PLAN_CLAUDE: claudePlan,
+  RESOLVED_PLAN_CHATGPT: chatgptPlan,
+  RESOLVED_PLAN_GEMINI: geminiPlan,
 });
 
 /**

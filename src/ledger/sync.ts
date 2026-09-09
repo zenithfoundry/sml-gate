@@ -210,54 +210,7 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
   if (!dryRun) {
     process.stdout.write(`\rProgress: ${stats.syncedTraces}/${rows.length} traces synced.\n\n`);
 
-    if (hasClient) {
-      const summaryTraceId = crypto.randomUUID();
-      const ts = new Date().toISOString();
-      batch.push({
-        id: crypto.randomUUID(),
-        type: 'trace-create',
-        timestamp: ts,
-        body: {
-          id: summaryTraceId,
-          name: 'slm-gate-cycle-summary',
-          timestamp: ts,
-        }
-      });
-      batch.push({
-        id: crypto.randomUUID(),
-        type: 'score-create',
-        timestamp: ts,
-        body: {
-          traceId: summaryTraceId,
-          name: 'cycle_minutes_saved_chatgpt',
-          value: minsChatgpt,
-          dataType: 'NUMERIC',
-        }
-      });
-      batch.push({
-        id: crypto.randomUUID(),
-        type: 'score-create',
-        timestamp: ts,
-        body: {
-          traceId: summaryTraceId,
-          name: 'cycle_minutes_saved_claude',
-          value: minsClaude,
-          dataType: 'NUMERIC',
-        }
-      });
-      batch.push({
-        id: crypto.randomUUID(),
-        type: 'score-create',
-        timestamp: ts,
-        body: {
-          traceId: summaryTraceId,
-          name: 'cycle_minutes_saved_gemini',
-          value: minsGemini,
-          dataType: 'NUMERIC',
-        }
-      });
-      await flushBatch();
-    }
+    // Summary trace and scores removed from batch (handled per-event now)
   } else {
     console.log();
   }

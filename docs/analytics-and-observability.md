@@ -82,6 +82,27 @@ All settings are controlled via environment variables in your `.env` file (or in
 | `RAM_PRESET` | `enum` | `custom` | Hardware RAM profile (`ram-4`, `ram-8`, `ram-12`, `ram-16`, `ram-24`, `ram-32`, `custom`) that automatically assigns optimal local models. |
 | `HEADLINE_STRICTNESS`| `number` | `4` | Verification strictness level (`0` to `5`). Higher values make the verifier more skeptical, forcing local answers to escalate to the cloud if uncertain. |
 
+### PLAN_REGISTRY and Token Estimation
+The `SUBSCRIPTION_PLAN` environment variable automatically configures your token budget using the following authoritative window lengths and token estimates:
+
+| Plan Key | Provider | Window Length | Multiplier/Msgs |
+| :--- | :--- | :--- | :--- |
+| `claude-pro` | claude | 300 min | 45 msgs |
+| `claude-max-5x` | claude | 300 min | 225 msgs |
+| `claude-max-20x` | claude | 300 min | 900 msgs |
+| `chatgpt-go` | chatgpt | 180 min | 1x (160 msgs) |
+| `chatgpt-plus` | chatgpt | 180 min | 1x (160 msgs) |
+| `chatgpt-pro-5x` | chatgpt | 180 min | 5x (160 msgs) |
+| `chatgpt-pro-20x` | chatgpt | 180 min | 20x (160 msgs) |
+| `gemini-plus` | gemini | 300 min | 2x |
+| `gemini-pro` | gemini | 300 min | 4x |
+| `gemini-ultra` | gemini | 300 min | 20x |
+
+**Sources (verified 2026-09-09):**
+- Claude: <https://support.anthropic.com/en/articles/11014257-about-claude-max-plan-usage>
+- ChatGPT: <https://help.openai.com>
+- Gemini: <https://support.google.com/gemini/answer/16275805>
+
 ---
 
 ## 4. Using Local SQLite Analytics (No Cloud Required)
@@ -285,7 +306,15 @@ pnpm run ledger:sync --limit 20
 
 ---
 
-## 8. Data Interpretation & Product Decision Framework
+## 8. Data Interpretation & Product Decision Framework (langfuse and bench test results)
+
+### Cycle window model
+Each Cycle Extended card is a cumulative SUM of minutes reclaimed, not an average.
+windowMinutes is authoritative (providers publish it); tokensPerWindow is an ESTIMATE
+(no provider publishes a per-window token budget). So the RATIO between the three cards is
+trustworthy (fixed at 300:300:180 for equal savings), the ABSOLUTE value on any card is
+directional — show it as "≈ N min" — and the trend over time is valid because every event
+uses the same assumptions. "The window length: yes. The token budget: no."
 
 Use your analytics to make concrete engineering decisions:
 

@@ -266,6 +266,20 @@ All variables below live in a file named `.env` and are **checked when the app s
 - **`CYCLE_MINUTES_CLAUDE`** Length of the Claude usage window, in minutes. Claude Pro and Max reset the session limit every 5 hours, counted from your first message. Verify at <https://support.anthropic.com/en/articles/11014257-about-claude-max-plan-usage> (Pro plan: see "About Claude's Pro Plan Usage" on support.anthropic.com). (Default: `300`)
 - **`CYCLE_MINUTES_GEMINI`** Length of the Gemini (Google AI Pro / Ultra) usage window, in minutes. The Gemini app uses a compute-based allowance that refreshes every 5 hours, up to a weekly ceiling. Verify at <https://support.google.com/gemini/answer/16275805>. (Default: `300`)
 
+#### SUBSCRIPTION_PLAN & Token Estimation
+Rather than setting individual `CYCLE_MINUTES_*` and `CYCLE_TOKENS_*` overrides, you can set a single `SUBSCRIPTION_PLAN` variable. This collapses the hand-tuned knobs into a single line that automatically configures the authoritative window length and the estimated token budget for your provider.
+- **`SUBSCRIPTION_PLAN`**: Set to one of the supported plans. Valid values: `claude-pro`, `claude-max-5x`, `claude-max-20x`, `chatgpt-go`, `chatgpt-plus`, `chatgpt-pro-5x`, `chatgpt-pro-20x`, `gemini-plus`, `gemini-pro`, `gemini-ultra`.
+- **`AVG_TOKENS_PER_MESSAGE`**: An estimate of your average prompt size. This means ONE user-visible turn (not a token, not a tool/API call). It is linear on the estimated budget and INVERSE on the minute cards.
+  - **Workload tiers:** ~300-800 Q&A / ~1500 light coding / ~4000-12000 agentic.
+  - **Calibration:** `(sum in_tok+out_tok) / (number of turns)` from `output/ledger.sqlite`.
+  - **Important:** It shifts the shared absolute scale but NOT the cross-provider ratio.
+- **`GEMINI_STANDARD_TOKENS_PER_WINDOW`**: The assumed baseline token allowance for a standard Gemini window, which is multiplied by the tier's multiplier (e.g., Ultra = 20x). (Default: `30000`).
+
+Sources (verified 2026-09-09):
+- Claude: <https://support.anthropic.com/en/articles/11014257-about-claude-max-plan-usage>
+- ChatGPT: <https://help.openai.com>
+- Gemini: <https://support.google.com/gemini/answer/16275805>
+
 ### Step 6 Clarification resolver and miscellaneous
 *A grab-bag of toggles including a feature that lets the local AI ask the paid AI for help on genuinely ambiguous decisions, with a strict spending cap.*
 

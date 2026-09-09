@@ -27,6 +27,9 @@ jest.unstable_mockModule('../../src/config.js', () => ({
     LANGFUSE_PUBLIC_KEY: '',
     LANGFUSE_SECRET_KEY: '',
     LANGFUSE_HOST: '',
+    RESOLVED_PLAN_CLAUDE: { windowMinutes: 300, tokensPerWindow: 67500, plan: 'claude-pro' },
+    RESOLVED_PLAN_CHATGPT: { windowMinutes: 180, tokensPerWindow: 240000, plan: 'chatgpt-plus' },
+    RESOLVED_PLAN_GEMINI: { windowMinutes: 300, tokensPerWindow: 600000, plan: 'gemini-ultra' }
   }
 }));
 

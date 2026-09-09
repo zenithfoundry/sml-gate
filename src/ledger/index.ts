@@ -456,8 +456,39 @@ export function formatEventForLangfuse(e: LedgerEvent): LangfuseQueuePayload {
     { id: `${e.request_id}_score_tokens_saved`, name: 'tokens_saved', value: tokensSaved, dataType: 'NUMERIC' },
   ];
 
+  // Accuracy rule
   if (typeof e.quality_score === 'number') {
-    scores.push({ id: `${e.request_id}_score_quality_score`, name: 'accuracy_rate_pct', value: Number((e.quality_score * 100).toFixed(2)), dataType: 'NUMERIC' });
+    scores.push({ id: `${e.request_id}_score_accuracy_rate_pct`, name: 'accuracy_rate_pct', value: Number((e.quality_score * 100).toFixed(2)), dataType: 'NUMERIC' });
+  } else {
+    const isLocalAttempted = parsedMeta.local_attempted === 1 || e.route === 'defer_local' || e.route === 'condition' || e.is_local_call === 1;
+    if (isLocalAttempted) {
+      let hasFailureFlag = false;
+      if (e.verifier_flags) {
+        try {
+          const flags = JSON.parse(e.verifier_flags);
+          hasFailureFlag = Array.isArray(flags) && flags.length > 0;
+        } catch {
+          hasFailureFlag = Boolean(e.verifier_flags);
+        }
+      }
+      const isAccepted = parsedMeta.local_accepted === 1 || e.route === 'defer_local' || e.route === 'condition' || (e.is_local_call === 1 && !hasFailureFlag);
+      scores.push({ id: `${e.request_id}_score_accuracy_rate_pct`, name: 'accuracy_rate_pct', value: isAccepted ? 100 : 0, dataType: 'NUMERIC' });
+    }
+  }
+
+  // Cycle minutes saved
+  if (tokensSaved > 0) {
+    const claudePlan = CONFIG.RESOLVED_PLAN_CLAUDE;
+    const chatgptPlan = CONFIG.RESOLVED_PLAN_CHATGPT;
+    const geminiPlan = CONFIG.RESOLVED_PLAN_GEMINI;
+
+    const minsClaude = (tokensSaved * claudePlan.windowMinutes) / claudePlan.tokensPerWindow;
+    const minsChatgpt = (tokensSaved * chatgptPlan.windowMinutes) / chatgptPlan.tokensPerWindow;
+    const minsGemini = (tokensSaved * geminiPlan.windowMinutes) / geminiPlan.tokensPerWindow;
+
+    scores.push({ id: `${e.request_id}_score_cycle_min_claude`, name: 'cycle_minutes_saved_claude', value: Number(minsClaude.toFixed(2)), dataType: 'NUMERIC' });
+    scores.push({ id: `${e.request_id}_score_cycle_min_chatgpt`, name: 'cycle_minutes_saved_chatgpt', value: Number(minsChatgpt.toFixed(2)), dataType: 'NUMERIC' });
+    scores.push({ id: `${e.request_id}_score_cycle_min_gemini`, name: 'cycle_minutes_saved_gemini', value: Number(minsGemini.toFixed(2)), dataType: 'NUMERIC' });
   }
 
   const isLocal = e.route === 'defer_local' || (e.verifier_flags && !e.verifier_flags.includes('escalate'));

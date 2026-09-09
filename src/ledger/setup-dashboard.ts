@@ -12,6 +12,8 @@ async function setupDashboard(): Promise<void> {
   const headers = { Authorization: auth, 'Content-Type': 'application/json' };
 
   console.log('=== SLM Gate: Langfuse Dashboard Setup ===\n');
+  console.log('\nIMPORTANT: setup-dashboard.ts POSTs NEW widgets each run and dedupes only the dashboard by name.');
+  console.log('BEFORE re-running this script, the operator MUST delete the old avg-based cycle widgets (and any duplicate placements) in the Langfuse UI to avoid visual duplication!\n');
   
   // 1. Create Widgets
   console.log('Creating widgets...');
@@ -58,7 +60,7 @@ async function setupDashboard(): Promise<void> {
       description: 'Extra minutes of a 5h Claude window from SLM savings',
       view: 'scores-numeric',
       chartType: 'NUMBER',
-      metrics: [{ measure: 'value', agg: 'avg' }],
+      metrics: [{ measure: 'value', agg: 'sum' }],
       dimensions: [],
       filters: [{ type: 'string', column: 'name', operator: '=', value: 'cycle_minutes_saved_claude' }],
     },
@@ -67,7 +69,7 @@ async function setupDashboard(): Promise<void> {
       description: 'Extra minutes of a 3h ChatGPT window from SLM savings',
       view: 'scores-numeric',
       chartType: 'NUMBER',
-      metrics: [{ measure: 'value', agg: 'avg' }],
+      metrics: [{ measure: 'value', agg: 'sum' }],
       dimensions: [],
       filters: [{ type: 'string', column: 'name', operator: '=', value: 'cycle_minutes_saved_chatgpt' }],
     },
@@ -76,7 +78,7 @@ async function setupDashboard(): Promise<void> {
       description: 'Extra minutes of a 5h Gemini window from SLM savings',
       view: 'scores-numeric',
       chartType: 'NUMBER',
-      metrics: [{ measure: 'value', agg: 'avg' }],
+      metrics: [{ measure: 'value', agg: 'sum' }],
       dimensions: [],
       filters: [{ type: 'string', column: 'name', operator: '=', value: 'cycle_minutes_saved_gemini' }],
     }
