@@ -35,13 +35,12 @@ describe('hardware.ts', () => {
   });
 
   it('recommendPreset boundary checks', () => {
-    expect(recommendPreset(3)).toBe('ram-4');
-    expect(recommendPreset(8)).toBe('ram-8');
-    expect(recommendPreset(12)).toBe('ram-12');
-    expect(recommendPreset(15)).toBe('ram-12');
+    expect(recommendPreset(3)).toBe('ram-16');
     expect(recommendPreset(16)).toBe('ram-16');
     expect(recommendPreset(24)).toBe('ram-24');
-    expect(recommendPreset(64)).toBe('ram-32');
+    expect(recommendPreset(32)).toBe('ram-32');
+    expect(recommendPreset(64)).toBe('ram-64');
+    expect(recommendPreset(128)).toBe('ram-128');
   });
 
   it('recommendNumCtx boundary checks', () => {
@@ -54,17 +53,17 @@ describe('hardware.ts', () => {
   });
   
   it('getPresetRank works correctly', () => {
-    expect(getPresetRank('ram-4')).toBe(4);
-    expect(getPresetRank('ram-12')).toBe(12);
+    expect(getPresetRank('ram-16')).toBe(16);
+    expect(getPresetRank('ram-64')).toBe(64);
     expect(getPresetRank('custom')).toBe(24);
   });
 
   it('ramPresets map to the correct re-calibrated models', () => {
-    // Assert the specific models requested for the 24GB workhorse vs dedicated setups
-    expect(ramPresets['ram-16'].brain).toBe('qwen3.5:9b');
-    expect(ramPresets['ram-16'].gate).toBe('qwen2.5-coder:3b');
+    // Assert the specific models requested for the setups
+    expect(ramPresets['ram-16'].brain).toBe('qwen2.5-coder:3b');
+    expect(ramPresets['ram-16'].gate).toBe('qwen2.5-coder:0.5b');
     
-    expect(ramPresets['ram-24'].brain).toBe('qwen3:14b');
-    expect(ramPresets['ram-24'].gate).toBe('qwen2.5-coder:7b');
+    expect(ramPresets['ram-24'].brain).toBe('qwen3.5:4b');
+    expect(ramPresets['ram-24'].gate).toBe('qwen2.5-coder:3b');
   });
 });

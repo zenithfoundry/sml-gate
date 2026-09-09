@@ -107,10 +107,12 @@ const envSchema = z.object({
 const parsedEnv = envSchema.parse(process.env);
 
 const ramPresets: Record<string, { brain: string, gate: string }> = {
-  'ram-16': { brain: 'qwen2.5-coder:3b', gate: 'qwen2.5-coder:0.5b' },
-  'ram-24': { brain: 'qwen3.5:4b', gate: 'qwen2.5-coder:3b' },
-  'ram-32': { brain: 'qwen2.5:7b', gate: 'qwen2.5-coder:3b' },
-  'custom': { brain: 'qwen3.5:4b', gate: 'qwen2.5-coder:1.5b' },
+  'ram-16':  { brain: 'qwen2.5-coder:3b', gate: 'qwen2.5-coder:0.5b' },
+  'ram-24':  { brain: 'qwen3.5:4b',       gate: 'qwen2.5-coder:3b' },
+  'ram-32':  { brain: 'qwen2.5:7b',       gate: 'qwen2.5-coder:3b' },
+  'ram-64':  { brain: 'qwen3.5:9b',       gate: 'qwen3.5:4b' },
+  'ram-128': { brain: 'qwen3:14b',        gate: 'qwen3:7b' },
+  'custom':  { brain: 'qwen3.5:4b',       gate: 'qwen2.5-coder:3b' },
 };
 
 const preset = ramPresets[parsedEnv.RAM_PRESET] || ramPresets['custom'];

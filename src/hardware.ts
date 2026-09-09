@@ -1,5 +1,5 @@
-import os from 'node:os';
 import { execSync } from 'node:child_process';
+import os from 'node:os';
 
 /**
  * Represents the detected hardware capabilities of the host system.
@@ -74,12 +74,11 @@ export function detectHardware(mockOs?: { totalmem: () => number; arch: () => st
  * // returns 'ram-24'
  */
 export function recommendPreset(totalRamGB: number): string {
+  if (totalRamGB >= 128) return 'ram-128';
+  if (totalRamGB >= 64) return 'ram-64';
   if (totalRamGB >= 32) return 'ram-32';
   if (totalRamGB >= 24) return 'ram-24';
-  if (totalRamGB >= 16) return 'ram-16';
-  if (totalRamGB >= 12) return 'ram-12';
-  if (totalRamGB >= 8) return 'ram-8';
-  return 'ram-4';
+  return 'ram-16';
 }
 
 /**
@@ -106,13 +105,12 @@ export function recommendNumCtx(totalRamGB: number, dualModel: boolean = true): 
  * Each preset specifies a 'brain' model (for complex reasoning) and a 'gate' model (for fast routing/classification).
  */
 export const ramPresets: Record<string, { brain: string, gate: string }> = {
-  'ram-4':  { brain: 'qwen3.5:1.5b', gate: 'qwen2.5-coder:0.5b' },
-  'ram-8':  { brain: 'qwen3.5:3b',   gate: 'qwen2.5-coder:1.5b' },
-  'ram-12': { brain: 'qwen3.5:7b',   gate: 'qwen2.5-coder:1.5b' },
-  'ram-16': { brain: 'qwen3.5:9b',   gate: 'qwen2.5-coder:3b' },
-  'ram-24': { brain: 'qwen3:14b',    gate: 'qwen2.5-coder:7b' },
-  'ram-32': { brain: 'qwen3.5:32b',  gate: 'qwen2.5-coder:7b' },
-  'custom': { brain: 'qwen3.5:9b',   gate: 'qwen2.5-coder:3b' },
+  'ram-16':  { brain: 'qwen2.5-coder:3b', gate: 'qwen2.5-coder:0.5b' },
+  'ram-24':  { brain: 'qwen3.5:4b',       gate: 'qwen2.5-coder:3b' },
+  'ram-32':  { brain: 'qwen2.5:7b',       gate: 'qwen2.5-coder:3b' },
+  'ram-64':  { brain: 'qwen3.5:9b',       gate: 'qwen3.5:4b' },
+  'ram-128': { brain: 'qwen3:14b',        gate: 'qwen3:7b' },
+  'custom':  { brain: 'qwen3.5:4b',       gate: 'qwen2.5-coder:3b' },
 };
 
 /**
