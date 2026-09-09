@@ -7,12 +7,12 @@
   "author": "bronz3beard",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bronz3beard/small-language-model-gate.git"
+    "url": "git+https://github.com/zenithfoundry/slm-gate.git"
   },
   "bugs": {
-    "url": "https://github.com/bronz3beard/small-language-model-gate/issues"
+    "url": "https://github.com/zenithfoundry/slm-gate/issues"
   },
-  "homepage": "https://github.com/bronz3beard/small-language-model-gate#readme",
+  "homepage": "https://github.com/zenithfoundry/slm-gate#readme",
   "keywords": [
     "ai",
     "slm",
