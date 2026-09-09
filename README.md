@@ -30,10 +30,141 @@ without warranty of any kind.
 ## Prerequisites
 
 - **Ollama**: This project does not ship or maintain an install script for Ollama, as system dependencies vary. Please install Ollama from [ollama.com](https://ollama.com/) and ensure it is running at `http://localhost:11434`.
-- **Local Models**: You must manually pull the models suitable for your system's RAM. Refer to [Appendix C: RAM-by-Machine Model Table](#appendix-c-ram-by-machine-model-table) to choose your `SLM_BRAIN_MODEL` and `SLM_GATE_MODEL`.
+- **Local Models**: You must manually pull the models suitable for your system's RAM. Refer to [Machine Sizing & Hardware Recommendations (Appendix C)](#appendix-c-ram-by-machine-model-table) to choose your `SLM_BRAIN_MODEL` and `SLM_GATE_MODEL`.
   - _Example:_ `ollama pull qwen3.5:0.5b`
 
 > **Architectural Warning for Contributors:** This project strictly uses **Native Structured Outputs** (`format: jsonSchema` / `response_format: { type: "json_schema" }`) for all deterministic agentic logic. Do **NOT** use prompt engineering to request JSON in markdown blocks or use regex extraction. Doing so causes severe rambling and timeout flakes on Apple Silicon (`llama.cpp`) due to models failing to emit stop tokens.
+
+---
+
+<a id="appendix-c-ram-by-machine-model-table"></a>
+## Machine Sizing & Hardware Recommendations (Appendix C)
+
+### ⚡ Quick Machine Sizing & Readiness Check
+
+Before selecting or downloading models, run our built-in CLI diagnostic tools to inspect your machine's physical RAM, hardware accelerators (Apple Silicon Metal / CUDA / CPU), and verify downloaded model footprints:
+
+```bash
+# 1. Check pulled model footprints and view dual presets tailored to your detected RAM:
+npm run models:check   # or: node dist/cli.js models:check
+
+# 2. Run full preflight diagnostics (RAM, Node version, Ollama connectivity, context window fit):
+pnpm run dev doctor    # or: node dist/cli.js doctor
+```
+
+- **`models:check`**: Inspects local Ollama model sizes, calculates total memory usage, and recommends two machine-specific options:
+  - **Option A (Dedicated AI Node):** Maximizes AI model capabilities when `slm-gate` is the primary workload on this machine.
+  - **Option B (Primary Workhorse):** Reserves memory headroom for your OS, browser, and IDE to avoid swapping and UI lag.
+- **`doctor`**: Detects system architecture, RAM, unified memory, verifies Ollama reachability, validates context windows (`NUM_CTX`), and automatically writes a safe `.slm-gate-fallback.json` configuration if memory eviction or thrashing risk is detected.
+
+> [!TIP]
+> **Need help discovering which models run well on your exact hardware?**
+> Check out [AlexsJones/llmfit](https://github.com/AlexsJones/llmfit) — an open-source terminal tool (CLI & interactive TUI) that right-sizes local LLMs to your system's RAM, CPU, and GPU/VRAM. It scores models across quality, speed, fit, and context dimensions, estimates real tokens/second performance, and supports multiple local runtimes (Ollama, llama.cpp, MLX, Docker Model Runner).
+> 
+> ```bash
+> # macOS / Linux (Homebrew)
+> brew install AlexsJones/llmfit/llmfit
+> 
+> # Windows (Scoop)
+> scoop install llmfit
+> ```
+
+### RAM-by-Machine Model Table
+
+Selecting the right local models is crucial for performance. As a rule of thumb, you should configure your `.env` models based on your available system RAM:
+
+| RAM        | Recommended Presets | Example Brain Models               | Example Gate Models           |
+| :--------- | :------------------ | :--------------------------------- | :---------------------------- |
+| **16 GB**  | `ram-16`            | qwen2.5-coder:3b, tinyllama        | qwen2.5-coder:0.5b            |
+| **24 GB**  | `ram-24`            | qwen3.5:4b, llama3.2:3b            | qwen2.5-coder:3b, phi3:mini   |
+| **32 GB**  | `ram-32`            | qwen2.5:7b, mistral:7b             | qwen2.5-coder:3b, phi3:mini   |
+| **64 GB**  | `ram-64`            | qwen3.5:9b, llama3:8b              | qwen3.5:4b, llama3.2:3b       |
+| **128 GB** | `ram-128`           | qwen3:14b, llama3:70b (Q4)         | qwen3:7b, mistral:7b          |
+
+### Dual-Model Concurrency (`OLLAMA_MAX_LOADED_MODELS`)
+
+When running different models for the Gate (e.g. 3B) and Brain (e.g. 9B), configure Ollama to keep both models in memory concurrently to eliminate model swapping latency:
+
+```bash
+# macOS (persistent)
+launchctl setenv OLLAMA_MAX_LOADED_MODELS 2
+
+# Linux / Terminal
+export OLLAMA_MAX_LOADED_MODELS=2
+```
+
+> **Note on Hardware Limits:** When loading two models simultaneously, Ollama must allocate VRAM for both models' KV caches. On Apple Silicon, GPU memory allocation is strictly capped. If you experience models being evicted (one model unloading to make room for another), you must lower your `NUM_CTX` in your `.env`.
+>
+> - **24GB Mac**: `NUM_CTX=8192` is recommended to fit both models.
+> - **16GB Mac**: `NUM_CTX=4096` is recommended to fit both models.
+
+### 🍏 Best Practices for macOS/Homebrew Users
+
+When deploying Ollama on macOS via Homebrew (`brew install ollama`), developers face a severe configuration trap.
+
+> [!WARNING]
+> **The Configuration Trap:** Running `brew services restart ollama` aggressively overwrites the `~/Library/LaunchAgents/homebrew.mxcl.ollama.plist` file. This silently deletes any custom `EnvironmentVariables` you have manually added, resulting in aggressive model swapping and context truncation. Furthermore, Homebrew's native `.env` injection (via `~/.config/homebrew/services/`) is frequently ignored by the macOS LaunchDaemon for the Ollama formula.
+
+**The Solution:**
+To persistently apply critical environment variables for high-performance SLM routing without them being overwritten by Homebrew:
+1. Stop the brew service: `brew services stop ollama`
+2. Manually add your `EnvironmentVariables` dictionary to `~/Library/LaunchAgents/homebrew.mxcl.ollama.plist`.
+3. Natively load the daemon: `launchctl load ~/Library/LaunchAgents/homebrew.mxcl.ollama.plist`
+
+**Required Variables for this Repo:**
+- `OLLAMA_CONTEXT_LENGTH="8192"` (Ensures Ollama's global context matches the app's `NUM_CTX`)
+- `OLLAMA_KEEP_ALIVE="12h"` (Prevents unloaded models, ensuring warm latency)
+- `OLLAMA_MAX_LOADED_MODELS="2"` (or `1`, depending on VRAM capacity to prevent model swapping)
+
+*For further reading, refer to the [official Ollama FAQ on memory and concurrency](https://github.com/ollama/ollama/blob/main/docs/faq.md).*
+
+### ⚠️ RAM Troubleshooting & Sizing Disclaimer: What to do if your RAM config is not working
+
+If you experience high memory pressure, models being evicted (one model constantly unloading to make room for another), sluggish system responsiveness, or out-of-memory errors, the following **MUST** be considered:
+
+#### The Memory Formula
+```text
+Memory = Model Weights + (NUM_CTX × KV-Cache) × Models Loaded
+```
+
+**Dropping the brain model to a 7B is exactly the right lever, and yes it'll cut RAM. But don't just hand-edit `NUM_CTX` to a smaller number and call it done — memory is model weights + (`NUM_CTX` × KV-cache) × models loaded.**
+
+While this example shows dropping from a 9B (or 14B) model to a 7B model, this principle is a general rule that applies to all RAM capacities:
+
+1. **Check your pulled tags:**
+   ```bash
+   ollama list        # see which qwen tags are pulled
+   ```
+2. **Pick a smaller brain:**
+   e.g. `qwen2.5:7b` (pull it if needed: `ollama pull qwen2.5:7b`).
+   Keep the small gate model (`qwen2.5-coder:3b`) as-is; it's already tiny (~2GB).
+3. **Set it in your active environment (NOT just a template file):**
+   - **For Antigravity:** The config Antigravity actually uses is the JSON block in `~/.gemini/config/mcp_config.json` (under `mcpServers.slm-gate.env`). The `.env.24gb.example` file is just a reference. Add these to your `slm-gate` → `env`:
+     ```json
+     "SLM_BRAIN_MODEL": "qwen2.5:7b",
+     "SLM_GATE_MODEL": "qwen2.5-coder:3b",
+     "OLLAMA_MAX_LOADED_MODELS": "2",
+     "NUM_CTX": "4096"
+     ```
+   - **For Standalone / CLI / Stdio / HTTP:** Ensure these are in your active `.env` file or exported in your shell.
+4. **Shrink `NUM_CTX`:**
+   Lowering `NUM_CTX` from `8192` → `4096` is where a lot of the RAM savings actually comes from (the KV cache shrinks with it), and it's the single biggest knob after model size.
+5. **Fallback to Single-Model Mode if still heavy:**
+   If memory is still heavy, `OLLAMA_MAX_LOADED_MODELS="1"` forces one model in memory at a time (slower switching between gate and brain, but uses much less RAM).
+6. **Confirm exact variable names:**
+   Verify against `configs/antigravity/.env.24gb.example` that the gate reads:
+   - `SLM_BRAIN_MODEL`
+   - `SLM_GATE_MODEL`
+   - `SLM_GATE_TESTING_MODEL`
+   - `NUM_CTX`
+   - `OLLAMA_MAX_LOADED_MODELS`
+7. **Use doctor to sanity-check:**
+   Run `slm-gate doctor` to sanity-check the fit for your RAM:
+   ```bash
+   pnpm run dev doctor   # or: node dist/cli.js doctor
+   ```
+
+_Note: You must pull these models via `ollama pull <model_name>` before running `slm-gate serve`. Run `slm-gate doctor` to verify your environment!_
 
 ## The Two Cloud Models
 
@@ -303,101 +434,4 @@ Sources (verified 2026-09-09):
 - **`ROUTING_TUNE_THRESHOLD`** The local success rate *below which* the gate stops trying local for a category and goes straight to cloud. `0.5` means: if the local AI succeeds less than half the time for this kind of request, skip it. Higher (e.g. `0.7`) = stricter, sends more to the paid cloud (more reliable, costs more); lower (e.g. `0.3`) = keeps trying local (cheaper, but more failed attempts that then escalate). (Default: `0.5`)
 - **`ROUTING_TUNE_EXPLORE_RATE`** Even for categories it has learned to skip, the gate deliberately tries local this fraction of the time, to keep learning (a category might have improved, or was judged on stale data). This is the classic "explore vs. stick with what works" dial. `0.15` = it explores about 15% of the time. Higher = adapts faster but runs more risky trials; lower = more conservative and slower to adapt. (Default: `0.15`)
 
----
 
-## Appendix C: RAM-by-Machine Model Table
-
-Selecting the right local models is crucial for performance. As a rule of thumb, you should configure your `.env` models based on your available system RAM.
-
-| RAM        | Recommended Presets | Example Brain Models               | Example Gate Models           |
-| :--------- | :------------------ | :--------------------------------- | :---------------------------- |
-| **16 GB**  | `ram-16`            | qwen2.5-coder:3b, tinyllama        | qwen2.5-coder:0.5b            |
-| **24 GB**  | `ram-24`            | qwen3.5:4b, llama3.2:3b            | qwen2.5-coder:3b, phi3:mini   |
-| **32 GB**  | `ram-32`            | qwen2.5:7b, mistral:7b             | qwen2.5-coder:3b, phi3:mini   |
-| **64 GB**  | `ram-64`            | qwen3.5:9b, llama3:8b              | qwen3.5:4b, llama3.2:3b       |
-| **128 GB** | `ram-128`           | qwen3:14b, llama3:70b (Q4)         | qwen3:7b, mistral:7b          |
-
-### Dual-Model Concurrency (`OLLAMA_MAX_LOADED_MODELS`)
-
-When running different models for the Gate (e.g. 3B) and Brain (e.g. 9B), configure Ollama to keep both models in memory concurrently to eliminate model swapping latency:
-
-```bash
-# macOS (persistent)
-launchctl setenv OLLAMA_MAX_LOADED_MODELS 2
-
-# Linux / Terminal
-export OLLAMA_MAX_LOADED_MODELS=2
-```
-
-> **Note on Hardware Limits:** When loading two models simultaneously, Ollama must allocate VRAM for both models' KV caches. On Apple Silicon, GPU memory allocation is strictly capped. If you experience models being evicted (one model unloading to make room for another), you must lower your `NUM_CTX` in your `.env`.
->
-> - **24GB Mac**: `NUM_CTX=8192` is recommended to fit both models.
-> - **16GB Mac**: `NUM_CTX=4096` is recommended to fit both models.
-
-### 🍏 Best Practices for macOS/Homebrew Users
-
-When deploying Ollama on macOS via Homebrew (`brew install ollama`), developers face a severe configuration trap.
-
-> [!WARNING]
-> **The Configuration Trap:** Running `brew services restart ollama` aggressively overwrites the `~/Library/LaunchAgents/homebrew.mxcl.ollama.plist` file. This silently deletes any custom `EnvironmentVariables` you have manually added, resulting in aggressive model swapping and context truncation. Furthermore, Homebrew's native `.env` injection (via `~/.config/homebrew/services/`) is frequently ignored by the macOS LaunchDaemon for the Ollama formula.
-
-**The Solution:**
-To persistently apply critical environment variables for high-performance SLM routing without them being overwritten by Homebrew:
-1. Stop the brew service: `brew services stop ollama`
-2. Manually add your `EnvironmentVariables` dictionary to `~/Library/LaunchAgents/homebrew.mxcl.ollama.plist`.
-3. Natively load the daemon: `launchctl load ~/Library/LaunchAgents/homebrew.mxcl.ollama.plist`
-
-**Required Variables for this Repo:**
-- `OLLAMA_CONTEXT_LENGTH="8192"` (Ensures Ollama's global context matches the app's `NUM_CTX`)
-- `OLLAMA_KEEP_ALIVE="12h"` (Prevents unloaded models, ensuring warm latency)
-- `OLLAMA_MAX_LOADED_MODELS="2"` (or `1`, depending on VRAM capacity to prevent model swapping)
-
-*For further reading, refer to the [official Ollama FAQ on memory and concurrency](https://github.com/ollama/ollama/blob/main/docs/faq.md).*
-
-### ⚠️ RAM Troubleshooting & Sizing Disclaimer: What to do if your RAM config is not working
-
-If you experience high memory pressure, models being evicted (one model constantly unloading to make room for another), sluggish system responsiveness, or out-of-memory errors, the following **MUST** be considered:
-
-#### The Memory Formula
-```text
-Memory = Model Weights + (NUM_CTX × KV-Cache) × Models Loaded
-```
-
-**Dropping the brain model to a 7B is exactly the right lever, and yes it'll cut RAM. But don't just hand-edit `NUM_CTX` to a smaller number and call it done memory is model weights + (`NUM_CTX` × KV-cache) × models loaded.**
-
-While this example shows dropping from a 9B (or 14B) model to a 7B model, this principle is a general rule that applies to all RAM capacities:
-
-1. **Check your pulled tags:**
-   ```bash
-   ollama list        # see which qwen tags are pulled
-   ```
-2. **Pick a smaller brain:**
-   e.g. `qwen2.5:7b` (pull it if needed: `ollama pull qwen2.5:7b`).
-   Keep the small gate model (`qwen2.5-coder:3b`) as-is; it's already tiny (~2GB).
-3. **Set it in your active environment (NOT just a template file):**
-   - **For Antigravity:** The config Antigravity actually uses is the JSON block in `~/.gemini/config/mcp_config.json` (under `mcpServers.slm-gate.env`). The `.env.24gb.example` file is just a reference. Add these to your `slm-gate` → `env`:
-     ```json
-     "SLM_BRAIN_MODEL": "qwen2.5:7b",
-     "SLM_GATE_MODEL": "qwen2.5-coder:3b",
-     "OLLAMA_MAX_LOADED_MODELS": "2",
-     "NUM_CTX": "4096"
-     ```
-   - **For Standalone / CLI / Stdio / HTTP:** Ensure these are in your active `.env` file or exported in your shell.
-4. **Shrink `NUM_CTX`:**
-   Lowering `NUM_CTX` from `8192` → `4096` is where a lot of the RAM savings actually comes from (the KV cache shrinks with it), and it's the single biggest knob after model size.
-5. **Fallback to Single-Model Mode if still heavy:**
-   If memory is still heavy, `OLLAMA_MAX_LOADED_MODELS="1"` forces one model in memory at a time (slower switching between gate and brain, but uses much less RAM).
-6. **Confirm exact variable names:**
-   Verify against `configs/antigravity/.env.24gb.example` that the gate reads:
-   - `SLM_BRAIN_MODEL`
-   - `SLM_GATE_MODEL`
-   - `SLM_GATE_TESTING_MODEL`
-   - `NUM_CTX`
-   - `OLLAMA_MAX_LOADED_MODELS`
-7. **Use doctor to sanity-check:**
-   Run `slm-gate doctor` to sanity-check the fit for your RAM:
-   ```bash
-   pnpm run dev doctor   # or: node dist/cli.js doctor
-   ```
-
-_Note: You must pull these models via `ollama pull <model_name>` before running `slm-gate serve`. Run `slm-gate doctor` to verify your environment!_
