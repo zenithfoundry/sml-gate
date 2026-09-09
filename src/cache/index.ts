@@ -3,7 +3,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { CONFIG } from '../config.js';
 import { getDb } from '../ledger/index.js';
-import { SLM } from '../models/slm.js';
+import { cosineSimilarity, embedText } from '../utils/embedding.js';
 
 let dbInitialized = false;
 
@@ -36,19 +36,6 @@ export function initCacheDb() {
  * @param b The second vector (e.g., a stored prompt's embedding)
  * @returns A similarity score between -1.0 and 1.0
  */
-function cosineSimilarity(a: number[], b: number[]) {
-  let dotProduct = 0;
-  let normA = 0;
-  let normB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dotProduct += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
-  }
-  if (normA === 0 || normB === 0) return 0;
-  return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
-}
-
 /**
  * Scans a prompt text for potential file paths, reads those files from disk, 
  * and returns a map of their SHA-256 hashes. This acts as a stale-context guard:
@@ -119,10 +106,10 @@ export async function checkSemanticCache(text: string): Promise<any | null> {
   if (!CONFIG.SEMCACHE) return null;
   initCacheDb();
   
-  let currentEmbedding: number[];
+  let currentEmbedding: number[] | null;
   try {
-    const slm = new SLM();
-    currentEmbedding = await slm.embed(CONFIG.EMBED_MODEL, text);
+    currentEmbedding = await embedText(text);
+    if (!currentEmbedding) return null;
   } catch (e) {
     console.error(`[cache] Failed to generate embedding: ${e}`);
     return null;
@@ -178,10 +165,10 @@ export async function setSemanticCache(text: string, responseObj: any) {
   if (!CONFIG.SEMCACHE) return;
   initCacheDb();
   
-  let embedding: number[];
+  let embedding: number[] | null;
   try {
-    const slm = new SLM();
-    embedding = await slm.embed(CONFIG.EMBED_MODEL, text);
+    embedding = await embedText(text);
+    if (!embedding) return;
   } catch (e) {
     console.error(`[cache] Failed to generate embedding for storage: ${e}`);
     return;

@@ -79,6 +79,7 @@
     "@opentelemetry/sdk-node": "^0.222.0",
     "better-sqlite3": "^11.2.1",
     "dotenv": "^16.4.5",
+    "markdown-it": "^15.0.1",
     "ollama": "^0.5.8",
     "zod": "^3.23.8",
     "zod-to-json-schema": "^3.23.1"
@@ -90,6 +91,7 @@
     "@jest/globals": "^30.4.1",
     "@types/better-sqlite3": "^7.6.11",
     "@types/jest": "^29.5.12",
+    "@types/markdown-it": "^14.2.0",
     "@types/node": "^20.14.9",
     "jest": "^29.7.0",
     "ts-jest": "^29.2.2",

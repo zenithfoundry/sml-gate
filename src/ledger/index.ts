@@ -4,6 +4,24 @@ import crypto from 'node:crypto';
 
 let db: Database.Database | null = null;
 
+export interface DistillPolicyRow {
+  tool_pattern: string;
+  fidelity: 'verbatim' | 'structural' | 'summarize';
+  priority: number;
+  updated_at: string;
+}
+
+export interface DistillFeedbackRow {
+  id: string;
+  tool_name: string;
+  skill: string;
+  content_hash: string;
+  region_text: string;
+  embedding_blob: Buffer;
+  signal: number;
+  created_at: string;
+}
+
 export interface LedgerEvent {
   ts: string;
   layer: 'mcp' | 'llm';
@@ -40,6 +58,27 @@ export function getDb(): Database.Database {
     db = new Database(ledgerPath);
     db.pragma('journal_mode = WAL');
     db.exec(`
+      CREATE TABLE IF NOT EXISTS distill_policy (
+        tool_pattern TEXT PRIMARY KEY,
+        fidelity TEXT CHECK (fidelity IN ('verbatim','structural','summarize')),
+        priority INTEGER,
+        updated_at TEXT
+      );
+      
+      CREATE TABLE IF NOT EXISTS distill_feedback (
+        id TEXT PRIMARY KEY,
+        tool_name TEXT,
+        skill TEXT,
+        content_hash TEXT,
+        region_text TEXT,
+        embedding_blob BLOB,
+        signal INTEGER,
+        created_at TEXT
+      );
+      
+      CREATE INDEX IF NOT EXISTS idx_distill_feedback_tool ON distill_feedback(tool_name);
+      CREATE INDEX IF NOT EXISTS idx_distill_feedback_created ON distill_feedback(created_at);
+
       CREATE TABLE IF NOT EXISTS events (
         ts TEXT,
         layer TEXT,
@@ -87,6 +126,22 @@ export function getDb(): Database.Database {
         size_bytes INTEGER
       );
     `);
+
+
+    const policyCount = db.prepare('SELECT count(*) as c FROM distill_policy').get() as { c: number } | undefined;
+    if (!policyCount || policyCount.c === 0) {
+      const stmt = db.prepare('INSERT INTO distill_policy (tool_pattern, fidelity, priority, updated_at) VALUES (?, ?, ?, ?)');
+      const now = new Date().toISOString();
+      stmt.run('%skill%', 'verbatim', 10, now);
+      stmt.run('get_skill', 'verbatim', 10, now);
+      stmt.run('read_file', 'structural', 5, now);
+      stmt.run('view_file', 'structural', 5, now);
+      stmt.run('run_command', 'summarize', 0, now);
+      stmt.run('get_logs', 'summarize', 0, now);
+      stmt.run('grep_search', 'summarize', 0, now);
+      stmt.run('list_dir', 'summarize', 0, now);
+      stmt.run('*', 'summarize', -1, now);
+    }
 
     // Automatic cleanup (startup sweep)
     const retentionDays = CONFIG.ELISION_RETENTION_DAYS ?? 180;
@@ -551,3 +606,43 @@ export class LangfuseSink {
 }
 
 
+
+
+export function writeDistillFeedback(row: Omit<DistillFeedbackRow, 'created_at'>) {
+  const db = getDb();
+  if (!db) return;
+  try {
+    const stmt = db.prepare(`
+      INSERT INTO distill_feedback (id, tool_name, skill, content_hash, region_text, embedding_blob, signal, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(row.id, row.tool_name, row.skill, row.content_hash, row.region_text, row.embedding_blob, row.signal, new Date().toISOString());
+  } catch (e) {
+    console.error('Failed to write distill feedback', e);
+  }
+}
+
+export function getDistillFeedback(toolName: string, limit = 50): DistillFeedbackRow[] {
+  const db = getDb();
+  if (!db) return [];
+  try {
+    return db.prepare('SELECT * FROM distill_feedback WHERE tool_name = ? ORDER BY created_at DESC LIMIT ?')
+             .all(toolName, limit) as DistillFeedbackRow[];
+  } catch (e) {
+    return [];
+  }
+}
+
+export function getDistillPolicy(toolName: string): string {
+  const db = getDb();
+  if (!db) return 'summarize';
+  try {
+    const rows = db.prepare('SELECT tool_pattern, fidelity FROM distill_policy ORDER BY priority DESC').all() as any[];
+    for (const r of rows) {
+      if (r.tool_pattern === '*') return r.fidelity;
+      const regexStr = r.tool_pattern.replace(/%/g, '.*');
+      if (new RegExp('^' + regexStr + '$', 'i').test(toolName)) return r.fidelity;
+    }
+  } catch (e) {}
+  return 'summarize';
+}

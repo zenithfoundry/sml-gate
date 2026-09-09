@@ -4,6 +4,17 @@
 
 ## Core Components
 
+### Distillation Fidelity
+`slm-gate` compresses large tool outputs to save cloud tokens, but it implements layered fidelity controls:
+1. **Structural Tokenizer**: Abstract Syntax Tree based parsing protects code blocks, tables, and frontmatter.
+> In the context of the distillation documentation, an "AST-based tokenizer" means that the code doesn't just read the Markdown as a flat wall of text. Instead, it fully parses the text into a structured tree of meaningful elements (like tables, code blocks, lists, and headings).
+
+Because the code understands the structure of the document via this tree, it can safely protect an entire code block or table without accidentally breaking it in half, which is a common problem when using simple line-by-line regular expressions.
+2. **Policy DB (`distill_policy`)**: SQLite table defining handling modes per tool (`verbatim`, `structural`, `summarize`).
+3. **Adaptive Feedback (`distill_feedback`)**: Semantic cache loop that learns from user `expand_elision` requests.
+4. **Regex Fallback**: Configurable regex preserve-lists (`DISTILL_PRESERVE_PATH`) as the absolute floor.
+
+
 The system consists of two independently-runnable middleware layers plus one shared ledger:
 
 1. **Layer 1: `mcp-gate`**

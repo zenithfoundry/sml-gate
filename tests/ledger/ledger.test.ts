@@ -35,6 +35,7 @@ const { getDb, writeEvent, cacheGet, cacheSet, LangfuseSink } = await import('..
 describe('Ledger', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    getDb(); // Initialize DB once per test to consume the policy table init query
     LangfuseSink.__resetForTests();
   });
 
@@ -68,7 +69,7 @@ describe('Ledger', () => {
   });
 
   test('cache set and get', () => {
-    mockGet.mockReturnValueOnce({ value: 'my_value' });
+    mockGet.mockReturnValue({ value: 'my_value' });
     cacheSet('my_key', 'my_value');
     expect(mockPrepare).toHaveBeenCalled();
     expect(mockRun).toHaveBeenCalledWith('my_key', 'my_value', expect.any(String));
@@ -76,7 +77,7 @@ describe('Ledger', () => {
     const val = cacheGet('my_key');
     expect(val).toBe('my_value');
 
-    mockGet.mockReturnValueOnce(undefined);
+    mockGet.mockReturnValue(undefined);
     const missing = cacheGet('not_exist');
     expect(missing).toBeNull();
   });

@@ -93,13 +93,49 @@ export async function createServer() {
         
         if (!elisionId) throw new Error("elisionId is required");
         
-        // Dynamic import to avoid circular dependency if any
-        const { getElision, writeElision } = await import('../ledger/index.js');
+        // Dynamic imports to prevent circular dependencies at boot
+        const { getElision, writeElision, writeDistillFeedback, writeEvent } = await import('../ledger/index.js');
         const { estimateTokens, formatElisionMarker, computeElisionId } = await import('../utils/elision.js');
+        const { embedText, float64ArrayToBuffer } = await import('../utils/embedding.js');
         const crypto = await import('node:crypto');
         const record = getElision(elisionId);
         
         if (record) {
+          // Fire-and-forget: Embed the text the user explicitly wanted expanded.
+          // This populates the Adaptive Feedback DB, teaching the engine to preserve 
+          // semantically similar lines in future compressions.
+          embedText(record.original_text).then(emb => {
+            if (emb) {
+              writeDistillFeedback({
+                id: `fd_${Date.now()}_${Math.random().toString(36).substring(2,7)}`,
+                tool_name: record.tool_name,
+                skill: '',
+                content_hash: record.content_hash,
+                region_text: record.original_text,
+                embedding_blob: float64ArrayToBuffer(emb),
+                signal: 1
+              });
+            }
+          });
+          
+          // Log the manual expansion for analytics/billing
+          writeEvent({
+            ts: new Date().toISOString(),
+            layer: 'mcp',
+            request_id: `evt_${Date.now()}_${Math.random().toString(36).substring(2,7)}`,
+            route: 'condition',
+            is_local_call: 0,
+            api_in_tok: 0,
+            api_out_tok: 0,
+            in_tok: 0,
+            out_tok: 0,
+            cost_usd: 0,
+            slm_latency_s: 0,
+            api_latency_s: 0,
+            slm_gate: 'on',
+            meta: JSON.stringify({ type: 'distill_feedback', elision_id: elisionId, action: 'expand' })
+          } as any);
+
           // If it's a file read, we should theoretically re-read if hash changed, but we can't easily read here without downstreamClient calling the exact same tool.
           // Let's check if downstreamClient is available to re-run
           let textToReturn = record.original_text;

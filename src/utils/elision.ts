@@ -1,6 +1,8 @@
+import MarkdownIt from 'markdown-it';
 import crypto from 'node:crypto';
 import { CONFIG } from '../config.js';
-import { getDb, writeElision } from '../ledger/index.js';
+import { getDb, getDistillFeedback, getDistillPolicy, writeElision } from '../ledger/index.js';
+import { bufferToFloat64Array, cosineSimilarity, embedText } from '../utils/embedding.js';
 import { TOOL_RESULT_PREFIXES } from './constants.js';
 
 // NOTE:: "Elision" meaning is; Leaving out a sound, a syllable, or a word part when speaking.
@@ -323,27 +325,144 @@ export async function distillToolResult(
 
   let finalText = processedText;
   
-  // SLM Semantic Fallback 
-  // If the policy output remains oversized (and we are NOT processing raw file source codes which shouldn't be summarized contextually), 
-  // we deploy the SLM loop with placeholder preservation guarantees.
-  if (estimateTokens(finalText) > maxTokens && !['read_file', 'view_file'].some(t => (toolName||'').includes(t))) {
-    const slmLines = finalText.split('\n');
+  // ============================================================================
+  // DISTILLATION POLICY & SLM FALLBACK
+  // ============================================================================
+  
+  const isSkill = (toolName && /skill/i.test(toolName));
+  const resolvedToolName = toolName || (isSkill ? 'skill' : 'unknown');
+  
+  /**
+   * Determine the handling fidelity mode for this specific tool.
+   * - 'verbatim': Skip SLM summarization entirely.
+   * - 'structural': Preserve AST structures, defer truncation to the hard limit.
+   * - 'summarize': Proceed with full SLM compression.
+   */
+  let fidelity = getDistillPolicy(resolvedToolName);
+  
+  // Guardrail: If DISTILL_SKILLS is off, force verbatim mode for all skill payloads
+  // to guarantee skill instruction contracts are not corrupted by summarization.
+  if (isSkill && !CONFIG.DISTILL_SKILLS) {
+    fidelity = 'verbatim';
+  }
+
+  let skillBypassFired = false;
+  let adaptivePreservedCount = 0;
+
+  if (fidelity === 'verbatim') {
+    skillBypassFired = true;
+    console.error(`[distill] bypass: verbatim mode enforced for ${resolvedToolName}`);
+  } else if (fidelity === 'structural' && estimateTokens(finalText) > maxTokens) {
+    // Structural mode relies purely on the Hard Truncation check at the bottom of this file.
+    // We skip the SLM Semantic loop because structural integrity is more important than size.
+  } else if (estimateTokens(finalText) > maxTokens) {
+    // --------------------------------------------------------------------------
+    // SUMMARIZE MODE: Advanced Multi-Phase Preservation & Compression
+    // --------------------------------------------------------------------------
+    let textToProcess = finalText;
     const preserved = new Map<string, string>();
+    let preserveIdx = 0;
+
+    const slmLines = textToProcess.split('\n');
     const modifiedLines: string[] = [];
+    const protectedLineIndices = new Set<number>();
     
+    // Phase 1: Structural Tokenization
+    // We use MarkdownIt to build an AST of the payload. We extract the start/end lines
+    // of critical structures (code fences, tables, frontmatter) so they aren't split.
+    try {
+      const md = new MarkdownIt();
+      const tokens = md.parse(textToProcess, {});
+      
+      const protectNode = (start: number, end: number) => {
+        for (let i = start; i < end; i++) protectedLineIndices.add(i);
+      };
+
+      for (const token of tokens) {
+        if (!token.map) continue;
+        const [start, end] = token.map;
+        
+        // Protect structural blocks
+        if (['fence', 'table_open', 'blockquote_open', 'heading_open', 'front_matter'].includes(token.type)) {
+          protectNode(start, end);
+        } 
+        // Protect explicitly marked verbatim HTML blocks from TLS
+        else if (token.type === 'html_block' && token.content.includes('slm-gate:verbatim-start')) {
+          protectNode(start, end);
+        }
+      }
+    } catch (e) {
+      console.error('[distill] Structural parsing failed', e);
+    }
+
+    // Load semantic feedback history for this tool
+    const pastFeedback = CONFIG.DISTILL_ADAPTIVE ? getDistillFeedback(resolvedToolName) : [];
+
+    let currentBlock: string[] = [];
+    let blockStart = -1;
+
+    // Phase 2: Aggregate protected lines into cohesive placeholder blocks
     for (let i = 0; i < slmLines.length; i++) {
       const line = slmLines[i];
-      if (preservePatterns.some(p => p.test(line)) || line.includes('lines elided [id:')) {
-        const placeholder = `⟦PRESERVE_${i}⟧`;
-        preserved.set(placeholder, line);
-        modifiedLines.push(placeholder);
+      // A line is protected if it falls in an AST node, matches a user regex, or is a prior elision marker
+      const isProtected = protectedLineIndices.has(i) || preservePatterns.some(p => p.test(line)) || line.includes('lines elided [id:');
+      
+      if (isProtected) {
+        if (blockStart === -1) blockStart = i;
+        currentBlock.push(line);
       } else {
+        if (currentBlock.length > 0) {
+          const placeholder = `⟦PRESERVE_${preserveIdx++}⟧`;
+          preserved.set(placeholder, currentBlock.join('\n'));
+          modifiedLines.push(placeholder);
+          currentBlock = [];
+          blockStart = -1;
+        }
         modifiedLines.push(line);
       }
     }
     
-    if (preserved.size > slmLines.length * 0.7) {
-      console.warn(`distill_low_yield: Greedy preserve list matched ${preserved.size}/${slmLines.length} lines`);
+    // Flush trailing block
+    if (currentBlock.length > 0) {
+      const placeholder = `⟦PRESERVE_${preserveIdx++}⟧`;
+      preserved.set(placeholder, currentBlock.join('\n'));
+      modifiedLines.push(placeholder);
+    }
+    
+    // Phase 3: Adaptive Semantic Feedback Loop
+    // For the remaining unprotected lines, we probabilistically sample them. If their embedding 
+    // closely matches text that the user previously requested via expand_elision, we preemptively preserve it!
+    if (CONFIG.DISTILL_ADAPTIVE && pastFeedback.length > 0) {
+      for (let i = 0; i < modifiedLines.length; i++) {
+        const line = modifiedLines[i];
+        
+        // Skip existing placeholders and short meaningless lines
+        if (line.match(/⟦PRESERVE_\d+⟧/) || line.trim().length < 20) continue;
+        
+        // Explore rate prevents 100% computational overhead on every line
+        if (Math.random() < CONFIG.DISTILL_ADAPTIVE_EXPLORE_RATE) continue;
+
+        const emb = await embedText(line);
+        if (emb) {
+          let maxSim = 0;
+          for (const fb of pastFeedback) {
+             const fbEmb = bufferToFloat64Array(fb.embedding_blob);
+             const sim = cosineSimilarity(emb, fbEmb);
+             if (sim > maxSim) maxSim = sim;
+          }
+          
+          if (maxSim >= CONFIG.DISTILL_ADAPTIVE_THRESHOLD) {
+             const placeholder = `⟦PRESERVE_${preserveIdx++}⟧`;
+             preserved.set(placeholder, line);
+             modifiedLines[i] = placeholder;
+             adaptivePreservedCount++;
+          }
+        }
+      }
+    }
+    
+    if (adaptivePreservedCount > 0) {
+      console.info(`[distill] Adaptive loop preemptively preserved ${adaptivePreservedCount} regions based on semantic memory.`);
     }
     
     const textToCompress = modifiedLines.join('\n');
