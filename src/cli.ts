@@ -94,6 +94,7 @@ Commands:
                    --limit <number>         (limit number of events to sync)
                    --dry-run                (simulate without sending network requests)
   ledger:reset   Nuke local SQLite database and start fresh
+  setup-dashboard Setup Langfuse dashboard and widgets
   config         Print the current resolved configuration
   models:check   Check if required models are pulled and fit in RAM
   doctor         Run preflight readiness checks
@@ -139,6 +140,9 @@ Commands:
     const syncArgs = args.slice(1);
     const { command: cmd, args: cmdArgs } = getRunPath('src/ledger/sync.ts');
     runCommand(cmd, [...cmdArgs, ...syncArgs]);
+  } else if (command === 'setup-dashboard') {
+    const { command: cmd, args: cmdArgs } = getRunPath('src/ledger/setup-dashboard.ts');
+    runCommand(cmd, cmdArgs);
   } else if (command === 'ledger:reset') {
     const filesToNuke = [
       path.join(ROOT_DIR, 'output/ledger.sqlite'),

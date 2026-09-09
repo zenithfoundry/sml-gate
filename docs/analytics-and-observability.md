@@ -309,8 +309,8 @@ pnpm run ledger:sync --limit 20
 ## 8. Data Interpretation & Product Decision Framework (langfuse and bench test results)
 
 ### Cycle window model
-Each Cycle Extended card is a cumulative SUM of minutes reclaimed, not an average.
-The calculation is derived precisely from the `baseline_tokens` metric. By tracking exactly how many tokens were saved against the would-have-cost baseline of every request, we compute an exact ratio of savings. This ratio is then applied directly to the authoritative window length published by providers to accurately determine the extended runway.
+Each Cycle Extended card is a cumulative SUM of minutes reclaimed, bounded by the window length.
+The calculation is derived from the share of prompts resolved locally. By tracking the number of prompts answered entirely by the local SLM vs the total number of prompts, we compute a deferral ratio. This ratio (prompts passed locally / total prompts) is then applied directly to the authoritative window length published by providers to accurately determine the extended runway. Token savings on forwarded prompts show up under Tokens Saved / Cost Saved, not here, because a forwarded prompt still uses one message.
 
 Use your analytics to make concrete engineering decisions:
 

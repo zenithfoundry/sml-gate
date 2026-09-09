@@ -57,7 +57,7 @@ async function setupDashboard(): Promise<void> {
     },
     {
       name: 'Claude Cycle Extended (min)',
-      description: 'Extra minutes of your 5-hour Claude usage window that slm-gate gives back, at your current deferral share',
+      description: "Extra minutes of your 5-hour Claude window that slm-gate frees up by answering prompts locally — the share of prompts in the 'Passed (Local SLM)' slice, applied to the window length. Token savings on forwarded prompts show up under Tokens Saved / Cost Saved, not here, because a forwarded prompt still uses one message.",
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'max' }],
@@ -66,7 +66,7 @@ async function setupDashboard(): Promise<void> {
     },
     {
       name: 'ChatGPT Cycle Extended (min)',
-      description: 'Extra minutes of your 3-hour ChatGPT usage window that slm-gate gives back, at your current deferral share',
+      description: "Extra minutes of your 3-hour ChatGPT window that slm-gate frees up by answering prompts locally — the share of prompts in the 'Passed (Local SLM)' slice, applied to the window length. Token savings on forwarded prompts show up under Tokens Saved / Cost Saved, not here, because a forwarded prompt still uses one message.",
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'max' }],
@@ -75,7 +75,7 @@ async function setupDashboard(): Promise<void> {
     },
     {
       name: 'Gemini Cycle Extended (min)',
-      description: 'Extra minutes of your 5-hour Gemini usage window that slm-gate gives back, at your current deferral share',
+      description: "Extra minutes of your 5-hour Gemini window that slm-gate frees up by answering prompts locally — the share of prompts in the 'Passed (Local SLM)' slice, applied to the window length. Token savings on forwarded prompts show up under Tokens Saved / Cost Saved, not here, because a forwarded prompt still uses one message.",
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'max' }],

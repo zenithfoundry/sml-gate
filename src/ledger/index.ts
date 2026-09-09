@@ -225,9 +225,15 @@ export function getElision(id: string): ElisionRecord | null {
   return null;
 }
 
+export function isLocalEvent(e: LedgerEvent): boolean {
+  return e.route === 'defer_local' || (!!e.verifier_flags && !e.verifier_flags.includes('escalate'));
+}
+
 export function computeTotals(rows: LedgerEvent[]) {
   let tokensSaved = 0;
   let baselineTokens = 0;
+  let localCount = 0;
+  let totalCount = rows.length;
   
   for (const r of rows) {
     const apiIn = r.api_in_tok || 0;
@@ -242,9 +248,12 @@ export function computeTotals(rows: LedgerEvent[]) {
     if (r.route === 'defer_local' || (r.route === 'condition' && r.is_local_call === 1)) {
       tokensSaved += (slmIn + slmOut);
     }
+    if (isLocalEvent(r)) {
+      localCount += 1;
+    }
   }
   
-  return { tokensSaved, baselineTokens };
+  return { tokensSaved, baselineTokens, localCount, totalCount };
 }
 
 export function writeEvent(e: LedgerEvent) {
@@ -509,7 +518,7 @@ export function formatEventForLangfuse(e: LedgerEvent): LangfuseQueuePayload {
     });
   }
 
-  const isLocal = e.route === 'defer_local' || (e.verifier_flags && !e.verifier_flags.includes('escalate'));
+  const isLocal = isLocalEvent(e);
   const verifiedLabel = isLocal ? 'Passed (Local SLM)' : 'Escalated (Cloud)';
   const verifiedComment = isLocal
     ? 'Handled 100% locally by Small Language Model ($0 cloud cost)'
@@ -648,7 +657,7 @@ export class LangfuseSink {
 
   static _lastPublishTs = 0;
 
-  static async publishCycleRates(precomputedStats?: { tokensSaved: number; baselineTokens: number }) {
+  static async publishCycleRates(precomputedStats?: { tokensSaved: number; baselineTokens: number; localCount: number; totalCount: number }) {
     if (!this.hasValidConfig()) return;
 
     // Throttle to 1 per minute unless we are explicitly given precomputed stats (e.g. from sync loop)
@@ -659,19 +668,19 @@ export class LangfuseSink {
     let stats = precomputedStats;
     if (!stats) {
       const db = getDb();
-      const rows = db.prepare(`SELECT route, is_local_call, in_tok, out_tok, api_in_tok, api_out_tok FROM ledger`).all() as LedgerEvent[];
+      const rows = db.prepare(`SELECT route, is_local_call, in_tok, out_tok, api_in_tok, api_out_tok, verifier_flags, request_id FROM events`).all() as LedgerEvent[];
       stats = computeTotals(rows);
     }
 
-    const savingsFraction = stats.baselineTokens > 0 ? stats.tokensSaved / stats.baselineTokens : 0;
+    const deferralShare = stats.totalCount > 0 ? stats.localCount / stats.totalCount : 0;
     
     const claudePlan = CONFIG.RESOLVED_PLAN_CLAUDE;
     const chatgptPlan = CONFIG.RESOLVED_PLAN_CHATGPT;
     const geminiPlan = CONFIG.RESOLVED_PLAN_GEMINI;
 
-    const rateClaude = claudePlan.windowMinutes * savingsFraction;
-    const rateChatgpt = chatgptPlan.windowMinutes * savingsFraction;
-    const rateGemini = geminiPlan.windowMinutes * savingsFraction;
+    const rateClaude = claudePlan.windowMinutes * deferralShare;
+    const rateChatgpt = chatgptPlan.windowMinutes * deferralShare;
+    const rateGemini = geminiPlan.windowMinutes * deferralShare;
 
     const timestamp = new Date().toISOString();
     const batch = [

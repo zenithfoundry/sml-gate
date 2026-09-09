@@ -115,8 +115,8 @@ describe('Ledger', () => {
   test('publishCycleRates computes correctness and respects throttle', async () => {
     // 1. Mock DB data for computeTotals when no stats provided
     mockAll.mockReturnValueOnce([
-      { route: 'defer_local', is_local_call: 1, in_tok: 100, out_tok: 50, api_in_tok: 0, api_out_tok: 0 },
-      { route: 'escalate', is_local_call: 0, in_tok: 0, out_tok: 0, api_in_tok: 50, api_out_tok: 200 }
+      { route: 'defer_local', is_local_call: 1, in_tok: 100, out_tok: 50, api_in_tok: 0, api_out_tok: 0, verifier_flags: '', request_id: '1' },
+      { route: 'escalate', is_local_call: 0, in_tok: 0, out_tok: 0, api_in_tok: 50, api_out_tok: 200, verifier_flags: '["escalate"]', request_id: '2' }
     ]);
 
     // Mock fetch for publishCycleRates
@@ -141,7 +141,7 @@ describe('Ledger', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
 
     // Call it with precomputed stats (bypasses throttle)
-    await LangfuseSink.publishCycleRates({ tokensSaved: 150, baselineTokens: 400 });
+    await LangfuseSink.publishCycleRates({ tokensSaved: 150, baselineTokens: 400, localCount: 1, totalCount: 2 });
     expect(global.fetch).toHaveBeenCalledTimes(2);
 
     // Restore

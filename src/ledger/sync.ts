@@ -202,21 +202,21 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
     await flushBatch();
   }
 
-  const { tokensSaved, baselineTokens } = computeTotals(rows);
-  const savingsFraction = baselineTokens > 0 ? tokensSaved / baselineTokens : 0;
+  const { tokensSaved, baselineTokens, localCount, totalCount } = computeTotals(rows);
+  const deferralShare = totalCount > 0 ? localCount / totalCount : 0;
   
   const claudePlan = CONFIG.RESOLVED_PLAN_CLAUDE;
   const chatgptPlan = CONFIG.RESOLVED_PLAN_CHATGPT;
   const geminiPlan = CONFIG.RESOLVED_PLAN_GEMINI;
 
-  const rateClaude = claudePlan.windowMinutes * savingsFraction;
-  const rateChatgpt = chatgptPlan.windowMinutes * savingsFraction;
-  const rateGemini = geminiPlan.windowMinutes * savingsFraction;
+  const rateClaude = claudePlan.windowMinutes * deferralShare;
+  const rateChatgpt = chatgptPlan.windowMinutes * deferralShare;
+  const rateGemini = geminiPlan.windowMinutes * deferralShare;
 
   if (!dryRun) {
     process.stdout.write(`\rProgress: ${stats.syncedTraces}/${rows.length} traces synced.\n\n`);
 
-    await LangfuseSink.publishCycleRates({ tokensSaved, baselineTokens }).catch(err => {
+    await LangfuseSink.publishCycleRates({ tokensSaved, baselineTokens, localCount, totalCount }).catch(err => {
       console.warn(`\n[ledger] Warning: Langfuse cycle rate publish failed during sync: ${err.message || String(err)}`);
     });
   } else {
@@ -236,9 +236,9 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
     { Metric: 'Net Dollars Saved', Value: `$${stats.costSavedUsd.toFixed(4)}` },
     { Metric: 'Net Tokens Saved', Value: stats.tokensSaved.toLocaleString() },
     { Metric: 'Sync Errors', Value: stats.errors },
-    { Metric: `Cycle Extends (ChatGPT ${chatgptPlan.windowMinutes}m)`, Value: `~${rateChatgpt.toFixed(1)} mins` },
-    { Metric: `Cycle Extends (Claude ${claudePlan.windowMinutes}m)`, Value: `~${rateClaude.toFixed(1)} mins` },
-    { Metric: `Cycle Extends (Gemini ${geminiPlan.windowMinutes}m)`, Value: `~${rateGemini.toFixed(1)} mins` },
+    { Metric: `Cycle Extends (ChatGPT ${chatgptPlan.windowMinutes}m)`, Value: `~${rateChatgpt.toFixed(1)} min per 3-hour window` },
+    { Metric: `Cycle Extends (Claude ${claudePlan.windowMinutes}m)`, Value: `~${rateClaude.toFixed(1)} min per 5-hour window` },
+    { Metric: `Cycle Extends (Gemini ${geminiPlan.windowMinutes}m)`, Value: `~${rateGemini.toFixed(1)} min per 5-hour window` },
   ]);
 
   return stats;
