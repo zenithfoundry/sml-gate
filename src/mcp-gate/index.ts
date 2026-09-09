@@ -3,6 +3,10 @@ import { createServer } from './server.js';
 import { LangfuseSink } from '../ledger/index.js';
 
 async function main() {
+  if (CONFIG.MCP_GATE_TRANSPORT === 'stdio') {
+    console.log = console.error;
+  }
+
   console.error(`[mcp-gate] Starting up...`);
   console.error(`[mcp-gate] Mode: ${CONFIG.DOWNSTREAM_MCP ? 'Proxy' : 'Standalone'}`);
   console.error(`[mcp-gate] Transport: ${CONFIG.MCP_GATE_TRANSPORT}`);

@@ -145,7 +145,7 @@ export async function checkSemanticCache(text: string): Promise<any | null> {
     
     const sim = cosineSimilarity(currentEmbedding, Array.from(storedEmbedding));
     if (sim >= CONFIG.SEMCACHE_THRESHOLD) {
-      console.log(`[cache] HIT! Similarity: ${sim.toFixed(4)}`);
+      console.error(`[cache] HIT! Similarity: ${sim.toFixed(4)}`);
       return JSON.parse(row.response);
     }
   }

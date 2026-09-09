@@ -160,9 +160,9 @@ const claudePlan = resolvePlan('claude');
 const chatgptPlan = resolvePlan('chatgpt');
 const geminiPlan = resolvePlan('gemini');
 
-console.log(`[config] claude plan: ${claudePlan.plan} (windowMinutes: ${claudePlan.windowMinutes})`);
-console.log(`[config] chatgpt plan: ${chatgptPlan.plan} (windowMinutes: ${chatgptPlan.windowMinutes})`);
-console.log(`[config] gemini plan: ${geminiPlan.plan} (windowMinutes: ${geminiPlan.windowMinutes})`);
+console.error(`[config] claude plan: ${claudePlan.plan} (windowMinutes: ${claudePlan.windowMinutes})`);
+console.error(`[config] chatgpt plan: ${chatgptPlan.plan} (windowMinutes: ${chatgptPlan.windowMinutes})`);
+console.error(`[config] gemini plan: ${geminiPlan.plan} (windowMinutes: ${geminiPlan.windowMinutes})`);
 
 export const CONFIG = Object.freeze({
   ...parsedEnv,
