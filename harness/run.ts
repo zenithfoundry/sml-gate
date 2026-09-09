@@ -290,9 +290,9 @@ async function run() {
 
   const arms = deriveArms(results);
   writeReport(path.join(OUTPUT_DIR, 'leaderboard.md'), arms, hasCloud, tasksToRun.length, errorCount, {
-    cycleMinutesChatgpt: CONFIG.CYCLE_MINUTES_CHATGPT,
-    cycleMinutesClaude: CONFIG.CYCLE_MINUTES_CLAUDE,
-    cycleMinutesGemini: CONFIG.CYCLE_MINUTES_GEMINI
+    cycleMinutesChatgpt: CONFIG.RESOLVED_PLAN_CHATGPT.windowMinutes,
+    cycleMinutesClaude: CONFIG.RESOLVED_PLAN_CLAUDE.windowMinutes,
+    cycleMinutesGemini: CONFIG.RESOLVED_PLAN_GEMINI.windowMinutes
   });
 
   if (hasCloud) {

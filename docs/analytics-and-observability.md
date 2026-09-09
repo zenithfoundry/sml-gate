@@ -310,11 +310,7 @@ pnpm run ledger:sync --limit 20
 
 ### Cycle window model
 Each Cycle Extended card is a cumulative SUM of minutes reclaimed, not an average.
-windowMinutes is authoritative (providers publish it); tokensPerWindow is an ESTIMATE
-(no provider publishes a per-window token budget). So the RATIO between the three cards is
-trustworthy (fixed at 300:300:180 for equal savings), the ABSOLUTE value on any card is
-directional — show it as "≈ N min" — and the trend over time is valid because every event
-uses the same assumptions. "The window length: yes. The token budget: no."
+The calculation is derived precisely from the `baseline_tokens` metric. By tracking exactly how many tokens were saved against the would-have-cost baseline of every request, we compute an exact ratio of savings. This ratio is then applied directly to the authoritative window length published by providers to accurately determine the extended runway.
 
 Use your analytics to make concrete engineering decisions:
 

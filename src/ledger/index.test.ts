@@ -60,30 +60,46 @@ describe('formatEventForLangfuse', () => {
     expect(accuracyScore).toBeUndefined();
   });
 
-  it('Test 5: Verify cycle summary scores emit ONLY IF tokensSaved > 0', () => {
-    // With tokensSaved = 0 (forward_raw)
-    const eventNoSavings: LedgerEvent = { 
+  it('Test 5: Verify baseline_tokens score is emitted ONLY IF baselineTokens > 0', () => {
+    // Escalate event (no savings, but HAS cloud baseline)
+    const eventCloudTokens: LedgerEvent = { 
       ...baseEvent, 
-      route: 'forward_raw', 
+      route: 'escalate', 
       is_local_call: 0,
       api_in_tok: 100,
       api_out_tok: 50,
       in_tok: 0,
-      out_tok: 0
+      out_tok: 0,
+      verifier_flags: '["escalate"]'
     };
-    const payloadNo = formatEventForLangfuse(eventNoSavings);
-    expect(payloadNo.scores?.find(s => s.name.startsWith('cycle_minutes_saved_'))).toBeUndefined();
+    const payloadCloud = formatEventForLangfuse(eventCloudTokens);
+    expect(payloadCloud.scores?.find(s => s.name === 'baseline_tokens')?.value).toBe(150);
 
-    // With tokensSaved > 0 (defer_local)
-    const eventWithSavings: LedgerEvent = { 
+    // Defer local event (has savings and local baseline)
+    const eventLocalTokens: LedgerEvent = { 
       ...baseEvent, 
       route: 'defer_local', 
+      api_in_tok: 0,
+      api_out_tok: 0,
       in_tok: 100,
       out_tok: 50
     };
-    const payloadYes = formatEventForLangfuse(eventWithSavings);
-    expect(payloadYes.scores?.find(s => s.name === 'cycle_minutes_saved_chatgpt')).toBeDefined();
-    expect(payloadYes.scores?.find(s => s.name === 'cycle_minutes_saved_claude')).toBeDefined();
-    expect(payloadYes.scores?.find(s => s.name === 'cycle_minutes_saved_gemini')).toBeDefined();
+    const payloadLocal = formatEventForLangfuse(eventLocalTokens);
+    expect(payloadLocal.scores?.find(s => s.name === 'baseline_tokens')?.value).toBe(150);
+
+    // No tokens event (e.g. error before any model call)
+    const eventNoTokens: LedgerEvent = { 
+      ...baseEvent, 
+      route: 'condition', 
+      api_in_tok: 0,
+      api_out_tok: 0,
+      in_tok: 0,
+      out_tok: 0
+    };
+    const payloadNoTokens = formatEventForLangfuse(eventNoTokens);
+    expect(payloadNoTokens.scores?.find(s => s.name === 'baseline_tokens')).toBeUndefined();
+    
+    // Ensure the old cycle minutes scores are gone entirely
+    expect(payloadLocal.scores?.find(s => s.name.startsWith('cycle_minutes_saved_'))).toBeUndefined();
   });
 });

@@ -225,6 +225,28 @@ export function getElision(id: string): ElisionRecord | null {
   return null;
 }
 
+export function computeTotals(rows: LedgerEvent[]) {
+  let tokensSaved = 0;
+  let baselineTokens = 0;
+  
+  for (const r of rows) {
+    const apiIn = r.api_in_tok || 0;
+    const apiOut = r.api_out_tok || 0;
+    const slmIn = r.in_tok || 0;
+    const slmOut = r.out_tok || 0;
+    
+    // Baseline is "would-have-cost" (what reached cloud + what SLM processed locally)
+    const baseline = apiIn + apiOut + slmIn + slmOut;
+    baselineTokens += baseline;
+    
+    if (r.route === 'defer_local' || (r.route === 'condition' && r.is_local_call === 1)) {
+      tokensSaved += (slmIn + slmOut);
+    }
+  }
+  
+  return { tokensSaved, baselineTokens };
+}
+
 export function writeEvent(e: LedgerEvent) {
   const statement = getDb().prepare(`
     INSERT OR REPLACE INTO events (
@@ -476,19 +498,15 @@ export function formatEventForLangfuse(e: LedgerEvent): LangfuseQueuePayload {
     }
   }
 
-  // Cycle minutes saved
-  if (tokensSaved > 0) {
-    const claudePlan = CONFIG.RESOLVED_PLAN_CLAUDE;
-    const chatgptPlan = CONFIG.RESOLVED_PLAN_CHATGPT;
-    const geminiPlan = CONFIG.RESOLVED_PLAN_GEMINI;
-
-    const minsClaude = (tokensSaved * claudePlan.windowMinutes) / claudePlan.tokensPerWindow;
-    const minsChatgpt = (tokensSaved * chatgptPlan.windowMinutes) / chatgptPlan.tokensPerWindow;
-    const minsGemini = (tokensSaved * geminiPlan.windowMinutes) / geminiPlan.tokensPerWindow;
-
-    scores.push({ id: `${e.request_id}_score_cycle_min_claude`, name: 'cycle_minutes_saved_claude', value: Number(minsClaude.toFixed(2)), dataType: 'NUMERIC' });
-    scores.push({ id: `${e.request_id}_score_cycle_min_chatgpt`, name: 'cycle_minutes_saved_chatgpt', value: Number(minsChatgpt.toFixed(2)), dataType: 'NUMERIC' });
-    scores.push({ id: `${e.request_id}_score_cycle_min_gemini`, name: 'cycle_minutes_saved_gemini', value: Number(minsGemini.toFixed(2)), dataType: 'NUMERIC' });
+  // Baseline tokens score (emitted whenever baselineTokens > 0, including for escalated/forward_raw events)
+  const scoreBaselineTokens = (e.api_in_tok || 0) + (e.api_out_tok || 0) + (e.in_tok || 0) + (e.out_tok || 0);
+  if (scoreBaselineTokens > 0) {
+    scores.push({
+      id: `${e.request_id}_score_baseline_tokens`,
+      name: 'baseline_tokens',
+      value: scoreBaselineTokens,
+      dataType: 'NUMERIC'
+    });
   }
 
   const isLocal = e.route === 'defer_local' || (e.verifier_flags && !e.verifier_flags.includes('escalate'));
@@ -628,11 +646,107 @@ export class LangfuseSink {
     }
   }
 
+  static _lastPublishTs = 0;
+
+  static async publishCycleRates(precomputedStats?: { tokensSaved: number; baselineTokens: number }) {
+    if (!this.hasValidConfig()) return;
+
+    // Throttle to 1 per minute unless we are explicitly given precomputed stats (e.g. from sync loop)
+    const now = Date.now();
+    if (!precomputedStats && (now - this._lastPublishTs < 60000)) return;
+    this._lastPublishTs = now;
+
+    let stats = precomputedStats;
+    if (!stats) {
+      const db = getDb();
+      const rows = db.prepare(`SELECT route, is_local_call, in_tok, out_tok, api_in_tok, api_out_tok FROM ledger`).all() as LedgerEvent[];
+      stats = computeTotals(rows);
+    }
+
+    const savingsFraction = stats.baselineTokens > 0 ? stats.tokensSaved / stats.baselineTokens : 0;
+    
+    const claudePlan = CONFIG.RESOLVED_PLAN_CLAUDE;
+    const chatgptPlan = CONFIG.RESOLVED_PLAN_CHATGPT;
+    const geminiPlan = CONFIG.RESOLVED_PLAN_GEMINI;
+
+    const rateClaude = claudePlan.windowMinutes * savingsFraction;
+    const rateChatgpt = chatgptPlan.windowMinutes * savingsFraction;
+    const rateGemini = geminiPlan.windowMinutes * savingsFraction;
+
+    const timestamp = new Date().toISOString();
+    const batch = [
+      {
+        id: crypto.randomUUID(),
+        type: 'trace-create',
+        timestamp,
+        body: {
+          id: 'slmgate_cycle_rate_summary',
+          name: 'SLM Gate Cycle Rates'
+        }
+      },
+      {
+        id: crypto.randomUUID(),
+        type: 'score-create',
+        timestamp,
+        body: {
+          traceId: 'slmgate_cycle_rate_summary',
+          id: 'slmgate_cycle_rate_claude',
+          name: 'cycle_extended_per_window_claude',
+          value: Number(rateClaude.toFixed(2)),
+          dataType: 'NUMERIC'
+        }
+      },
+      {
+        id: crypto.randomUUID(),
+        type: 'score-create',
+        timestamp,
+        body: {
+          traceId: 'slmgate_cycle_rate_summary',
+          id: 'slmgate_cycle_rate_chatgpt',
+          name: 'cycle_extended_per_window_chatgpt',
+          value: Number(rateChatgpt.toFixed(2)),
+          dataType: 'NUMERIC'
+        }
+      },
+      {
+        id: crypto.randomUUID(),
+        type: 'score-create',
+        timestamp,
+        body: {
+          traceId: 'slmgate_cycle_rate_summary',
+          id: 'slmgate_cycle_rate_gemini',
+          name: 'cycle_extended_per_window_gemini',
+          value: Number(rateGemini.toFixed(2)),
+          dataType: 'NUMERIC'
+        }
+      }
+    ];
+
+    try {
+      const auth = Buffer.from(`${CONFIG.LANGFUSE_PUBLIC_KEY}:${CONFIG.LANGFUSE_SECRET_KEY}`).toString('base64');
+      const res = await fetch(`${CONFIG.LANGFUSE_HOST}/api/public/ingestion`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${auth}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ batch })
+      });
+      
+      if (!res.ok) {
+        console.warn(`[ledger] Warning: Langfuse cycle rate publish failed (${res.status}): ${await res.text()}`);
+      }
+    } catch (err: any) {
+      console.warn(`[ledger] Warning: Langfuse cycle rate publish failed: ${err.message || String(err)}`);
+    }
+  }
+
   /**
    * Test-only utility to reset the internal client state.
    */
   static __resetForTests() {
     db = null;
+    this._lastPublishTs = 0;
   }
 }
 

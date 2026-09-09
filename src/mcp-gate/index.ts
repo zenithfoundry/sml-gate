@@ -11,6 +11,7 @@ async function main() {
   // Start background flush for Langfuse offline queue
   setInterval(() => {
     LangfuseSink.flushQueue().catch(err => console.error('[mcp-gate] Langfuse flush error:', err));
+    LangfuseSink.publishCycleRates().catch(err => console.error('[mcp-gate] Langfuse summary publish error:', err));
   }, 5 * 60 * 1000);
 
   try {

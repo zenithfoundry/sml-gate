@@ -6,7 +6,7 @@
  */
 
 import { CONFIG, requireKeys } from '../config.js';
-import { formatEventForLangfuse, getDb, LangfuseSink, LedgerEvent } from './index.js';
+import { formatEventForLangfuse, getDb, LangfuseSink, LedgerEvent, computeTotals } from './index.js';
 import { initLangfuseConfigs } from './sync-config.js';
 import crypto from 'node:crypto';
 
@@ -202,15 +202,23 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
     await flushBatch();
   }
 
-  const savingsFraction = stats.baselineTokens > 0 ? stats.tokensSaved / stats.baselineTokens : 0;
-  const minsChatgpt = Math.round(CONFIG.CYCLE_MINUTES_CHATGPT! * savingsFraction);
-  const minsClaude = Math.round(CONFIG.CYCLE_MINUTES_CLAUDE! * savingsFraction);
-  const minsGemini = Math.round(CONFIG.CYCLE_MINUTES_GEMINI! * savingsFraction);
+  const { tokensSaved, baselineTokens } = computeTotals(rows);
+  const savingsFraction = baselineTokens > 0 ? tokensSaved / baselineTokens : 0;
+  
+  const claudePlan = CONFIG.RESOLVED_PLAN_CLAUDE;
+  const chatgptPlan = CONFIG.RESOLVED_PLAN_CHATGPT;
+  const geminiPlan = CONFIG.RESOLVED_PLAN_GEMINI;
+
+  const rateClaude = claudePlan.windowMinutes * savingsFraction;
+  const rateChatgpt = chatgptPlan.windowMinutes * savingsFraction;
+  const rateGemini = geminiPlan.windowMinutes * savingsFraction;
 
   if (!dryRun) {
     process.stdout.write(`\rProgress: ${stats.syncedTraces}/${rows.length} traces synced.\n\n`);
 
-    // Summary trace and scores removed from batch (handled per-event now)
+    await LangfuseSink.publishCycleRates({ tokensSaved, baselineTokens }).catch(err => {
+      console.warn(`\n[ledger] Warning: Langfuse cycle rate publish failed during sync: ${err.message || String(err)}`);
+    });
   } else {
     console.log();
   }
@@ -228,9 +236,9 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
     { Metric: 'Net Dollars Saved', Value: `$${stats.costSavedUsd.toFixed(4)}` },
     { Metric: 'Net Tokens Saved', Value: stats.tokensSaved.toLocaleString() },
     { Metric: 'Sync Errors', Value: stats.errors },
-    { Metric: 'Cycle Extends (ChatGPT)', Value: `~${minsChatgpt} mins` },
-    { Metric: 'Cycle Extends (Claude)', Value: `~${minsClaude} mins` },
-    { Metric: 'Cycle Extends (Gemini)', Value: `~${minsGemini} mins` },
+    { Metric: `Cycle Extends (ChatGPT ${chatgptPlan.windowMinutes}m)`, Value: `~${rateChatgpt.toFixed(1)} mins` },
+    { Metric: `Cycle Extends (Claude ${claudePlan.windowMinutes}m)`, Value: `~${rateClaude.toFixed(1)} mins` },
+    { Metric: `Cycle Extends (Gemini ${geminiPlan.windowMinutes}m)`, Value: `~${rateGemini.toFixed(1)} mins` },
   ]);
 
   return stats;

@@ -262,18 +262,7 @@ All variables below live in a file named `.env` and are **checked when the app s
 
 **Time-saved-per-cycle window lengths.** Paid AI plans refresh your usage allowance on a repeating timer (a "usage window"). Because the gate answers some requests for free and trims others, you use up that allowance more slowly, so each window effectively lasts a little longer. These three values are the length of each provider's window in minutes; the dashboard and the leaderboard multiply your token-savings percentage by this length to show the extra runway — for example, saving ~6% of tokens extends a 300-minute (5-hour) Claude window by ~18 minutes. It's a ratio, so the figure stays roughly the same whether you send 100 requests or 900. Providers change these limits without notice, so verify the current window for your plan and model at the links below and set the value to match. Most plans also have a separate weekly cap, which this metric intentionally ignores (it models only the short refresh window).
 
-- **`CYCLE_MINUTES_CHATGPT`** Length of the ChatGPT usage window, in minutes. OpenAI's published figure is ~160 GPT-5.5 messages every 3 hours on Plus/Go; note that Codex/Work also runs a separate rolling 5-hour window, so set this to `300` if your usage is mostly agent/Codex work. Verify at <https://help.openai.com> (search "ChatGPT usage limits"). (Default: `180`)
-- **`CYCLE_MINUTES_CLAUDE`** Length of the Claude usage window, in minutes. Claude Pro and Max reset the session limit every 5 hours, counted from your first message. Verify at <https://support.anthropic.com/en/articles/11014257-about-claude-max-plan-usage> (Pro plan: see "About Claude's Pro Plan Usage" on support.anthropic.com). (Default: `300`)
-- **`CYCLE_MINUTES_GEMINI`** Length of the Gemini (Google AI Pro / Ultra) usage window, in minutes. The Gemini app uses a compute-based allowance that refreshes every 5 hours, up to a weekly ceiling. Verify at <https://support.google.com/gemini/answer/16275805>. (Default: `300`)
-
-#### SUBSCRIPTION_PLAN & Token Estimation
-Rather than setting individual `CYCLE_MINUTES_*` and `CYCLE_TOKENS_*` overrides, you can set a single `SUBSCRIPTION_PLAN` variable. This collapses the hand-tuned knobs into a single line that automatically configures the authoritative window length and the estimated token budget for your provider.
-- **`SUBSCRIPTION_PLAN`**: Set to one of the supported plans. Valid values: `claude-pro`, `claude-max-5x`, `claude-max-20x`, `chatgpt-go`, `chatgpt-plus`, `chatgpt-pro-5x`, `chatgpt-pro-20x`, `gemini-plus`, `gemini-pro`, `gemini-ultra`.
-- **`AVG_TOKENS_PER_MESSAGE`**: An estimate of your average prompt size. This means ONE user-visible turn (not a token, not a tool/API call). It is linear on the estimated budget and INVERSE on the minute cards.
-  - **Workload tiers:** ~300-800 Q&A / ~1500 light coding / ~4000-12000 agentic.
-  - **Calibration:** `(sum in_tok+out_tok) / (number of turns)` from `output/ledger.sqlite`.
-  - **Important:** It shifts the shared absolute scale but NOT the cross-provider ratio.
-- **`GEMINI_STANDARD_TOKENS_PER_WINDOW`**: The assumed baseline token allowance for a standard Gemini window, which is multiplied by the tier's multiplier (e.g., Ultra = 20x). (Default: `30000`).
+- **`SUBSCRIPTION_PLAN`**: Set to one of the supported plans. This automatically configures the authoritative window length for your provider's rate limits. Valid values: `claude-pro`, `claude-max-5x`, `claude-max-20x`, `chatgpt-go`, `chatgpt-plus`, `chatgpt-pro-5x`, `chatgpt-pro-20x`, `gemini-plus`, `gemini-pro`, `gemini-ultra`.
 
 Sources (verified 2026-09-09):
 - Claude: <https://support.anthropic.com/en/articles/11014257-about-claude-max-plan-usage>

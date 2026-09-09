@@ -82,14 +82,6 @@ const envSchema = z.object({
   PLAN_CLAUDE: z.string().optional(),
   PLAN_CHATGPT: z.string().optional(),
   PLAN_GEMINI: z.string().optional(),
-  AVG_TOKENS_PER_MESSAGE: parseInteger(1500),
-  GEMINI_STANDARD_TOKENS_PER_WINDOW: parseInteger(30000),
-  CYCLE_MINUTES_CHATGPT: parseInteger(180),
-  CYCLE_MINUTES_CLAUDE: parseInteger(300),
-  CYCLE_MINUTES_GEMINI: parseInteger(300),
-  CYCLE_TOKENS_CHATGPT: parseInteger(0),
-  CYCLE_TOKENS_CLAUDE: parseInteger(0),
-  CYCLE_TOKENS_GEMINI: parseInteger(0),
 
   // STEP 6
   RESOLVER_CLOUD_TIER: parseBoolean(false),
@@ -134,35 +126,18 @@ const ramPresets: Record<string, { brain: string, gate: string }> = {
 const preset = ramPresets[parsedEnv.RAM_PRESET] || ramPresets['custom'];
 
 const resolvePlan = (provider: 'claude'|'chatgpt'|'gemini') => {
-  // 1. Raw override
-  const rawMinKey = `CYCLE_MINUTES_${provider.toUpperCase()}` as keyof typeof parsedEnv;
-  const rawTokKey = `CYCLE_TOKENS_${provider.toUpperCase()}` as keyof typeof parsedEnv;
-  
-  const rawMin = parsedEnv[rawMinKey] as number;
-  const rawTok = parsedEnv[rawTokKey] as number;
-
-  if (rawTok > 0) {
-    return {
-      windowMinutes: rawMin,
-      tokensPerWindow: rawTok,
-      isEstimate: false,
-      source: 'raw_override',
-      plan: 'raw_override'
-    };
-  }
-
-  // 2. PLAN_<P>
+  // 1. PLAN_<P>
   const planProviderKey = `PLAN_${provider.toUpperCase()}` as keyof typeof parsedEnv;
   let planKey = parsedEnv[planProviderKey] as string | undefined;
 
-  // 3. SUBSCRIPTION_PLAN
+  // 2. SUBSCRIPTION_PLAN
   if (!planKey && parsedEnv.SUBSCRIPTION_PLAN) {
     if (parsedEnv.SUBSCRIPTION_PLAN.startsWith(provider)) {
       planKey = parsedEnv.SUBSCRIPTION_PLAN;
     }
   }
 
-  // 4. Default
+  // 3. Default
   if (!planKey) {
     if (provider === 'claude') planKey = 'claude-pro';
     else if (provider === 'chatgpt') planKey = 'chatgpt-plus';
@@ -173,11 +148,9 @@ const resolvePlan = (provider: 'claude'|'chatgpt'|'gemini') => {
     throw new Error(`Invalid plan key '${planKey}' for ${provider}. Valid keys: ${getValidPlanKeys().join(', ')}`);
   }
 
-  const resolved = getSubscriptionPlan(planKey!, parsedEnv.AVG_TOKENS_PER_MESSAGE, parsedEnv.GEMINI_STANDARD_TOKENS_PER_WINDOW);
+  const resolved = getSubscriptionPlan(planKey!);
   return {
     windowMinutes: resolved.windowMinutes,
-    tokensPerWindow: resolved.estTokensPerWindow,
-    isEstimate: resolved.isEstimate,
     source: resolved.source,
     plan: planKey
   };
@@ -187,9 +160,9 @@ const claudePlan = resolvePlan('claude');
 const chatgptPlan = resolvePlan('chatgpt');
 const geminiPlan = resolvePlan('gemini');
 
-console.log(`[config] claude plan: ${claudePlan.plan} (windowMinutes: ${claudePlan.windowMinutes}, tokensPerWindow: ${claudePlan.tokensPerWindow}, isEstimate: ${claudePlan.isEstimate})`);
-console.log(`[config] chatgpt plan: ${chatgptPlan.plan} (windowMinutes: ${chatgptPlan.windowMinutes}, tokensPerWindow: ${chatgptPlan.tokensPerWindow}, isEstimate: ${chatgptPlan.isEstimate})`);
-console.log(`[config] gemini plan: ${geminiPlan.plan} (windowMinutes: ${geminiPlan.windowMinutes}, tokensPerWindow: ${geminiPlan.tokensPerWindow}, isEstimate: ${geminiPlan.isEstimate})`);
+console.log(`[config] claude plan: ${claudePlan.plan} (windowMinutes: ${claudePlan.windowMinutes})`);
+console.log(`[config] chatgpt plan: ${chatgptPlan.plan} (windowMinutes: ${chatgptPlan.windowMinutes})`);
+console.log(`[config] gemini plan: ${geminiPlan.plan} (windowMinutes: ${geminiPlan.windowMinutes})`);
 
 export const CONFIG = Object.freeze({
   ...parsedEnv,

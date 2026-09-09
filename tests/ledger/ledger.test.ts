@@ -2,9 +2,11 @@ import { jest } from '@jest/globals';
 
 const mockRun = jest.fn();
 const mockGet = jest.fn();
+const mockAll = jest.fn();
 const mockPrepare = jest.fn(() => ({
   run: mockRun,
   get: mockGet,
+  all: mockAll,
 }));
 const mockExec = jest.fn();
 const mockPragma = jest.fn();
@@ -27,9 +29,9 @@ jest.unstable_mockModule('../../src/config.js', () => ({
     LANGFUSE_PUBLIC_KEY: '',
     LANGFUSE_SECRET_KEY: '',
     LANGFUSE_HOST: '',
-    RESOLVED_PLAN_CLAUDE: { windowMinutes: 300, tokensPerWindow: 67500, plan: 'claude-pro' },
-    RESOLVED_PLAN_CHATGPT: { windowMinutes: 180, tokensPerWindow: 240000, plan: 'chatgpt-plus' },
-    RESOLVED_PLAN_GEMINI: { windowMinutes: 300, tokensPerWindow: 600000, plan: 'gemini-ultra' }
+    RESOLVED_PLAN_CLAUDE: { windowMinutes: 300, plan: 'claude-pro' },
+    RESOLVED_PLAN_CHATGPT: { windowMinutes: 180, plan: 'chatgpt-plus' },
+    RESOLVED_PLAN_GEMINI: { windowMinutes: 300, plan: 'gemini-ultra' }
   }
 }));
 
@@ -108,5 +110,46 @@ describe('Ledger', () => {
     };
 
     expect(() => writeEvent(event)).not.toThrow();
+  });
+
+  test('publishCycleRates computes correctness and respects throttle', async () => {
+    // 1. Mock DB data for computeTotals when no stats provided
+    mockAll.mockReturnValueOnce([
+      { route: 'defer_local', is_local_call: 1, in_tok: 100, out_tok: 50, api_in_tok: 0, api_out_tok: 0 },
+      { route: 'escalate', is_local_call: 0, in_tok: 0, out_tok: 0, api_in_tok: 50, api_out_tok: 200 }
+    ]);
+
+    // Mock fetch for publishCycleRates
+    global.fetch = jest.fn(() => Promise.resolve({ ok: true, text: () => Promise.resolve(''), json: () => Promise.resolve({}) } as any));
+
+    const { CONFIG } = await import('../../src/config.js');
+
+    // Temporarily enable config for LangfuseSink
+    const origKey = CONFIG.LANGFUSE_PUBLIC_KEY;
+    Object.assign(CONFIG, {
+      LANGFUSE_PUBLIC_KEY: 'test',
+      LANGFUSE_SECRET_KEY: 'test',
+      LANGFUSE_HOST: 'http://test'
+    });
+
+    // Call it first time
+    await LangfuseSink.publishCycleRates();
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    
+    // Call it immediately again (should throttle)
+    await LangfuseSink.publishCycleRates();
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+
+    // Call it with precomputed stats (bypasses throttle)
+    await LangfuseSink.publishCycleRates({ tokensSaved: 150, baselineTokens: 400 });
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+
+    // Restore
+    Object.assign(CONFIG, {
+      LANGFUSE_PUBLIC_KEY: origKey,
+      LANGFUSE_SECRET_KEY: '',
+      LANGFUSE_HOST: ''
+    });
+    delete (global as any).fetch;
   });
 });
