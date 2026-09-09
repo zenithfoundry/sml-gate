@@ -20,7 +20,7 @@ export const SLM_TIMEOUT_MS = process.env.SLM_TIMEOUT_MS || '60000';
 export const SLM_GATE_MODEL = process.env.SLM_GATE_MODEL || 'qwen2.5-coder:3b';
 
 /** A slightly larger secondary local model used when more complex reasoning or verification is needed. */
-export const SLM_BRAIN_MODEL = process.env.SLM_BRAIN_MODEL || 'qwen3.5:9b';
+export const SLM_BRAIN_MODEL = process.env.SLM_BRAIN_MODEL || 'qwen3.5:4b';
 
 /** The model used specifically for offline testing and benchmarking suites. Defaults to matching SLM_GATE_MODEL. */
 export const SLM_GATE_TESTING_MODEL = process.env.SLM_GATE_TESTING_MODEL || SLM_GATE_MODEL;
