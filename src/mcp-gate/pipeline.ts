@@ -162,6 +162,8 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
     route: 'condition',
     is_local_call: 1,
     slm_model: CONFIG.SLM_GATE_MODEL,
+    api_model: args?.model ? String(args.model) : undefined,
+    agent: args?.agent ? String(args.agent) : undefined,
     in_tok: Math.round(text.length / 4),
     out_tok: Math.round(conditioned.length / 4),
     api_in_tok: 0,

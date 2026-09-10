@@ -309,8 +309,11 @@ pnpm run ledger:sync --limit 20
 ## 8. Data Interpretation & Product Decision Framework (langfuse and bench test results)
 
 ### Cycle window model
-Each Cycle Extended card is a cumulative SUM of minutes reclaimed, bounded by the window length.
-The calculation is derived from the share of prompts resolved locally. By tracking the number of prompts answered entirely by the local SLM vs the total number of prompts, we compute a deferral ratio. This ratio (prompts passed locally / total prompts) is then applied directly to the authoritative window length published by providers to accurately determine the extended runway. Token savings on forwarded prompts show up under Tokens Saved / Cost Saved, not here, because a forwarded prompt still uses one message.
+The dashboard provides per-provider "Cycle Extended" cards (Claude, ChatGPT, Gemini), which only populate when traffic for that specific provider is detected. 
+
+The calculation depends on the provider's underlying metering model:
+- **Message-Based (Claude / ChatGPT):** Extended runway is calculated from the share of prompts resolved locally. By tracking the number of prompts answered entirely by the local SLM vs the total number of prompts, we compute a deferral ratio. This ratio is applied directly to the window length (e.g., 5 hours for Claude). Token savings on forwarded prompts do *not* extend the cycle, because a forwarded prompt still consumes a message.
+- **Compute-Based (Gemini):** Extended runway accounts for the overall token reduction, making token savings from compression highly valuable for extending the cycle.
 
 Use your analytics to make concrete engineering decisions:
 

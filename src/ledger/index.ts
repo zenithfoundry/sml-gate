@@ -43,6 +43,8 @@ export interface LedgerEvent {
   quality_score?: number | null;
   slm_gate: 'on' | 'off';
   meta?: string; // JSON
+  agent?: string;
+  provider?: string | null;
 }
 
 import fs from 'node:fs';
@@ -99,7 +101,8 @@ export function getDb(): Database.Database {
         verifier_flags TEXT,
         quality_score REAL,
         slm_gate TEXT,
-        meta TEXT
+        meta TEXT,
+        provider TEXT
       );
 
       CREATE TABLE IF NOT EXISTS cache (
@@ -229,6 +232,54 @@ export function isLocalEvent(e: LedgerEvent): boolean {
   return e.route === 'defer_local' || (!!e.verifier_flags && !e.verifier_flags.includes('escalate'));
 }
 
+export function providerFromModel(model?: string): 'claude' | 'chatgpt' | 'gemini' | null {
+  if (!model) return null;
+  const m = model.toLowerCase();
+  if (m.includes('claude') || m.includes('sonnet') || m.includes('opus') || m.includes('haiku') || m.includes('anthropic')) return 'claude';
+  if (m.includes('gemini') || m.includes('gemma') || m.includes('bison')) return 'gemini';
+  if (m.includes('gpt') || m.includes('openai') || m.startsWith('o1') || m.startsWith('o3') || m.startsWith('o4')) return 'chatgpt';
+  return null;
+}
+
+export function providerFromAgent(agent?: string): 'claude' | 'chatgpt' | 'gemini' | null {
+  if (!agent) return null;
+  const a = agent.toLowerCase();
+  if (a.includes('antigravity')) return 'gemini';
+  if (a.includes('claude')) return 'claude';
+  if (a.includes('chatgpt') || a.includes('openai')) return 'chatgpt';
+  return null;
+}
+
+export function perEventTokensSaved(e: LedgerEvent): number {
+  const parsedMeta = e.meta ? (() => { try { return JSON.parse(e.meta); } catch { return {}; } })() : {};
+  if (e.route === 'defer_local') {
+    return (e.in_tok || 0) + (e.out_tok || 0);
+  } else if (e.route === 'forward_compressed') {
+    const rawInTok = typeof parsedMeta.raw_in_tok === 'number' ? parsedMeta.raw_in_tok : (e.api_in_tok > 0 ? Math.round(e.api_in_tok * 1.5) : e.in_tok);
+    const baselineTokens = rawInTok + (e.api_out_tok || e.out_tok || 0);
+    const actualTokens = (e.api_in_tok || 0) + (e.api_out_tok || 0);
+    return Math.max(0, baselineTokens - actualTokens);
+  } else if (e.route === 'condition') {
+    const baselineTokens = e.in_tok || 0;
+    const actualTokens = e.out_tok || 0;
+    return Math.max(0, baselineTokens - actualTokens);
+  }
+  return 0;
+}
+
+export function perEventBaselineTokens(e: LedgerEvent): number {
+  const parsedMeta = e.meta ? (() => { try { return JSON.parse(e.meta); } catch { return {}; } })() : {};
+  if (e.route === 'defer_local') {
+    return (e.in_tok || 0) + (e.out_tok || 0);
+  } else if (e.route === 'forward_compressed') {
+    const rawInTok = typeof parsedMeta.raw_in_tok === 'number' ? parsedMeta.raw_in_tok : (e.api_in_tok > 0 ? Math.round(e.api_in_tok * 1.5) : e.in_tok);
+    return rawInTok + (e.api_out_tok || e.out_tok || 0);
+  } else if (e.route === 'condition') {
+    return e.in_tok || 0;
+  }
+  return (e.api_in_tok || e.in_tok || 0) + (e.api_out_tok || e.out_tok || 0);
+}
+
 export function computeTotals(rows: LedgerEvent[]) {
   let tokensSaved = 0;
   let baselineTokens = 0;
@@ -236,24 +287,34 @@ export function computeTotals(rows: LedgerEvent[]) {
   let totalCount = rows.length;
   
   for (const r of rows) {
-    const apiIn = r.api_in_tok || 0;
-    const apiOut = r.api_out_tok || 0;
-    const slmIn = r.in_tok || 0;
-    const slmOut = r.out_tok || 0;
-    
-    // Baseline is "would-have-cost" (what reached cloud + what SLM processed locally)
-    const baseline = apiIn + apiOut + slmIn + slmOut;
-    baselineTokens += baseline;
-    
-    if (r.route === 'defer_local' || (r.route === 'condition' && r.is_local_call === 1)) {
-      tokensSaved += (slmIn + slmOut);
-    }
+    baselineTokens += perEventBaselineTokens(r);
+    tokensSaved += perEventTokensSaved(r);
     if (isLocalEvent(r)) {
       localCount += 1;
     }
   }
   
   return { tokensSaved, baselineTokens, localCount, totalCount };
+}
+
+export function computeTotalsByProvider(rows: LedgerEvent[]) {
+  const stats = {
+    claude: { tokensSaved: 0, baselineTokens: 0, localCount: 0, totalCount: 0 },
+    chatgpt: { tokensSaved: 0, baselineTokens: 0, localCount: 0, totalCount: 0 },
+    gemini: { tokensSaved: 0, baselineTokens: 0, localCount: 0, totalCount: 0 },
+  };
+  for (const r of rows) {
+    const p = r.provider || providerFromModel(r.api_model) || providerFromAgent(r.agent) || null;
+    if (p && stats[p as keyof typeof stats]) {
+      stats[p as keyof typeof stats].baselineTokens += perEventBaselineTokens(r);
+      stats[p as keyof typeof stats].tokensSaved += perEventTokensSaved(r);
+      stats[p as keyof typeof stats].totalCount += 1;
+      if (isLocalEvent(r)) {
+        stats[p as keyof typeof stats].localCount += 1;
+      }
+    }
+  }
+  return stats;
 }
 
 export function writeEvent(e: LedgerEvent) {
@@ -367,38 +428,27 @@ export interface LangfuseQueuePayload {
 export function formatEventForLangfuse(e: LedgerEvent): LangfuseQueuePayload {
   const referenceCloudModel = CONFIG.CLOUD_MODEL || 'gemini-2.5-flash';
   
-  // Calculate baseline metrics (what it would have cost/consumed without SLM routing or compression)
-  let baselineTokens = 0;
+  const baselineTokens = perEventBaselineTokens(e);
+  const tokensSaved = perEventTokensSaved(e);
   let baselineCostUsd = 0;
-  let tokensSaved = 0;
   let costSavedUsd = 0;
   
   const parsedMeta = e.meta ? (() => { try { return JSON.parse(e.meta); } catch { return {}; } })() : {};
   
   if (e.route === 'defer_local') {
-    baselineTokens = (e.in_tok || 0) + (e.out_tok || 0);
     baselineCostUsd = safeCalculateCostUsd(referenceCloudModel, e.in_tok, e.out_tok);
-    tokensSaved = baselineTokens;
     costSavedUsd = baselineCostUsd;
   } else if (e.route === 'forward_compressed') {
     const rawInTok = typeof parsedMeta.raw_in_tok === 'number' ? parsedMeta.raw_in_tok : (e.api_in_tok > 0 ? Math.round(e.api_in_tok * 1.5) : e.in_tok);
-    baselineTokens = rawInTok + (e.api_out_tok || e.out_tok || 0);
     baselineCostUsd = safeCalculateCostUsd(e.api_model || referenceCloudModel, rawInTok, e.api_out_tok || e.out_tok || 0);
-    const actualTokens = (e.api_in_tok || 0) + (e.api_out_tok || 0);
-    tokensSaved = Math.max(0, baselineTokens - actualTokens);
     costSavedUsd = Math.max(0, baselineCostUsd - (e.cost_usd || 0));
   } else if (e.route === 'condition') {
-    baselineTokens = e.in_tok || 0;
-    const actualTokens = e.out_tok || 0;
-    tokensSaved = Math.max(0, baselineTokens - actualTokens);
     baselineCostUsd = safeCalculateCostUsd(referenceCloudModel, baselineTokens, 0);
-    const conditionedCostUsd = safeCalculateCostUsd(referenceCloudModel, actualTokens, 0);
+    const conditionedCostUsd = safeCalculateCostUsd(referenceCloudModel, e.out_tok || 0, 0);
     costSavedUsd = Math.max(0, baselineCostUsd - conditionedCostUsd);
   } else {
     // forward_raw or escalate
-    baselineTokens = (e.api_in_tok || e.in_tok || 0) + (e.api_out_tok || e.out_tok || 0);
     baselineCostUsd = e.cost_usd || 0;
-    tokensSaved = 0;
     costSavedUsd = 0;
   }
 
@@ -657,33 +707,26 @@ export class LangfuseSink {
 
   static _lastPublishTs = 0;
 
-  static async publishCycleRates(precomputedStats?: { tokensSaved: number; baselineTokens: number; localCount: number; totalCount: number }) {
+  static async publishCycleRates() {
     if (!this.hasValidConfig()) return;
 
     // Throttle to 1 per minute unless we are explicitly given precomputed stats (e.g. from sync loop)
     const now = Date.now();
-    if (!precomputedStats && (now - this._lastPublishTs < 60000)) return;
+    if (now - this._lastPublishTs < 60000) return;
     this._lastPublishTs = now;
 
-    let stats = precomputedStats;
-    if (!stats) {
-      const db = getDb();
-      const rows = db.prepare(`SELECT route, is_local_call, in_tok, out_tok, api_in_tok, api_out_tok, verifier_flags, request_id FROM events`).all() as LedgerEvent[];
-      stats = computeTotals(rows);
-    }
-
-    const deferralShare = stats.totalCount > 0 ? stats.localCount / stats.totalCount : 0;
+    const db = getDb();
+    const rows = db.prepare(`SELECT * FROM events`).all() as LedgerEvent[];
+    const providerStats = computeTotalsByProvider(rows);
     
-    const claudePlan = CONFIG.RESOLVED_PLAN_CLAUDE;
-    const chatgptPlan = CONFIG.RESOLVED_PLAN_CHATGPT;
-    const geminiPlan = CONFIG.RESOLVED_PLAN_GEMINI;
-
-    const rateClaude = claudePlan.windowMinutes * deferralShare;
-    const rateChatgpt = chatgptPlan.windowMinutes * deferralShare;
-    const rateGemini = geminiPlan.windowMinutes * deferralShare;
+    const plans = {
+      claude: CONFIG.RESOLVED_PLAN_CLAUDE,
+      chatgpt: CONFIG.RESOLVED_PLAN_CHATGPT,
+      gemini: CONFIG.RESOLVED_PLAN_GEMINI,
+    };
 
     const timestamp = new Date().toISOString();
-    const batch = [
+    const batch: any[] = [
       {
         id: crypto.randomUUID(),
         type: 'trace-create',
@@ -692,44 +735,31 @@ export class LangfuseSink {
           id: 'slmgate_cycle_rate_summary',
           name: 'SLM Gate Cycle Rates'
         }
-      },
-      {
-        id: crypto.randomUUID(),
-        type: 'score-create',
-        timestamp,
-        body: {
-          traceId: 'slmgate_cycle_rate_summary',
-          id: 'slmgate_cycle_rate_claude',
-          name: 'cycle_extended_per_window_claude',
-          value: Number(rateClaude.toFixed(2)),
-          dataType: 'NUMERIC'
-        }
-      },
-      {
-        id: crypto.randomUUID(),
-        type: 'score-create',
-        timestamp,
-        body: {
-          traceId: 'slmgate_cycle_rate_summary',
-          id: 'slmgate_cycle_rate_chatgpt',
-          name: 'cycle_extended_per_window_chatgpt',
-          value: Number(rateChatgpt.toFixed(2)),
-          dataType: 'NUMERIC'
-        }
-      },
-      {
-        id: crypto.randomUUID(),
-        type: 'score-create',
-        timestamp,
-        body: {
-          traceId: 'slmgate_cycle_rate_summary',
-          id: 'slmgate_cycle_rate_gemini',
-          name: 'cycle_extended_per_window_gemini',
-          value: Number(rateGemini.toFixed(2)),
-          dataType: 'NUMERIC'
-        }
       }
     ];
+
+    for (const [provider, stats] of Object.entries(providerStats)) {
+      if (stats.baselineTokens > 0) {
+        const deferralShare = stats.totalCount > 0 ? stats.localCount / stats.totalCount : 0;
+        const plan = plans[provider as keyof typeof plans];
+        const rate = plan.windowMinutes * deferralShare;
+        batch.push({
+          id: crypto.randomUUID(),
+          type: 'score-create',
+          timestamp,
+          body: {
+            traceId: 'slmgate_cycle_rate_summary',
+            id: `slmgate_cycle_rate_${provider}`,
+            name: `cycle_extended_per_window_${provider}`,
+            value: Number(rate.toFixed(2)),
+            dataType: 'NUMERIC'
+          }
+        });
+      }
+    }
+
+    if (batch.length === 1) return; // Only trace, no scores
+
 
     try {
       const auth = Buffer.from(`${CONFIG.LANGFUSE_PUBLIC_KEY}:${CONFIG.LANGFUSE_SECRET_KEY}`).toString('base64');

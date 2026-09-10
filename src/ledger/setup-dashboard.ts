@@ -57,7 +57,7 @@ async function setupDashboard(): Promise<void> {
     },
     {
       name: 'Claude Cycle Extended (min)',
-      description: "Extra minutes of your 5-hour Claude window that slm-gate frees up by answering prompts locally — the share of prompts in the 'Passed (Local SLM)' slice, applied to the window length. Token savings on forwarded prompts show up under Tokens Saved / Cost Saved, not here, because a forwarded prompt still uses one message.",
+      description: "Extra minutes of your 5-hour Claude window that slm-gate frees up by answering prompts locally. Claude uses message-based metering, so token savings on forwarded prompts do not extend the cycle. This widget only populates when Claude receives traffic.",
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'max' }],
@@ -66,7 +66,7 @@ async function setupDashboard(): Promise<void> {
     },
     {
       name: 'ChatGPT Cycle Extended (min)',
-      description: "Extra minutes of your 3-hour ChatGPT window that slm-gate frees up by answering prompts locally — the share of prompts in the 'Passed (Local SLM)' slice, applied to the window length. Token savings on forwarded prompts show up under Tokens Saved / Cost Saved, not here, because a forwarded prompt still uses one message.",
+      description: "Extra minutes of your 3-hour ChatGPT window that slm-gate frees up by answering prompts locally. ChatGPT uses message-based metering, so token savings on forwarded prompts do not extend the cycle. This widget only populates when ChatGPT receives traffic.",
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'max' }],
@@ -75,7 +75,7 @@ async function setupDashboard(): Promise<void> {
     },
     {
       name: 'Gemini Cycle Extended (min)',
-      description: "Extra minutes of your 5-hour Gemini window that slm-gate frees up by answering prompts locally — the share of prompts in the 'Passed (Local SLM)' slice, applied to the window length. Token savings on forwarded prompts show up under Tokens Saved / Cost Saved, not here, because a forwarded prompt still uses one message.",
+      description: "Extra minutes of your 5-hour Gemini window that slm-gate frees up by answering prompts locally. Gemini uses compute-based metering, making token savings extremely valuable. This widget only populates when Gemini receives traffic.",
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'max' }],

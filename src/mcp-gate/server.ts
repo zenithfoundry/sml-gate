@@ -125,6 +125,8 @@ export async function createServer() {
             request_id: `evt_${Date.now()}_${Math.random().toString(36).substring(2,7)}`,
             route: 'condition',
             is_local_call: 0,
+            api_model: args?.model ? String(args.model) : undefined,
+            agent: args?.agent ? String(args.agent) : undefined,
             api_in_tok: 0,
             api_out_tok: 0,
             in_tok: 0,
