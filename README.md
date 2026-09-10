@@ -76,6 +76,9 @@ This prints a clean, offline summary showing tokens saved, compression ratio, re
 
 **Want a visual dashboard?** If you set up [Langfuse](https://langfuse.com/) (a free, open-source observability tool), `slm-gate` will also send traces there, giving you graphs, latency breakdowns, and session-by-session analysis. Langfuse is completely optional — the local metrics command always works regardless.
 
+### How It Works: Visual
+<img width="825" height="768" alt="Screenshot 2026-09-10 at 12 30 05 pm" src="https://github.com/user-attachments/assets/81d09734-234e-441f-9213-881ef219bedd" />
+
 ---
 
 ## 2. Prerequisites & Hardware Sizing
