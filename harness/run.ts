@@ -8,7 +8,7 @@ import { renderSvg } from './curve.js';
 import { loadTasks } from './dataset.js';
 import { extractAnswer, gradeAnswer } from './grade.js';
 import { writeReport } from './report.js';
-import { processPipeline } from '../src/llm-gate/pipeline.js';
+import { processPipeline, waitWithBackoff } from '../src/llm-gate/pipeline.js';
 import { InternalRequest } from '../src/llm-gate/formats/internal.js';
 
 const CACHE_DIR = path.join(CONFIG.ROOT_DIR, 'harness', '.cache');
@@ -107,7 +107,16 @@ async function callLlmGate(prompt: string, routeHeader: string, taskId?: string)
       api_latency_s: res.apiLatency,
       verifier_flags: JSON.stringify(res.verifierFlags),
       slm_gate: routeHeader === 'raw' ? 'off' : 'on',
-      meta: JSON.stringify({ raw_in_tok: res.inTok, taskId })
+      meta: JSON.stringify({ 
+        raw_in_tok: res.inTok, 
+        taskId,
+        category: res.category,
+        local_attempted: res.localAttempted ? 1 : 0,
+        local_accepted: res.localAccepted ? 1 : 0,
+        prompt_chars: res.promptChars,
+        prompt_tok_est: res.promptTokEst,
+        has_code_fence: res.hasCodeFence ? 1 : 0
+      })
     };
     writeEvent(event);
     
@@ -122,6 +131,17 @@ async function callLlmGate(prompt: string, routeHeader: string, taskId?: string)
   } catch (err: any) {
     return { answer: '', reqId: null, error: err.message };
   }
+}
+
+async function callLlmGateWithRetry(prompt: string, routeHeader: string, taskId?: string) {
+  let res = await callLlmGate(prompt, routeHeader, taskId);
+  let retries = 2;
+  while (res.error && retries > 0 && (res.error.includes('Too Many Requests') || res.error.includes('fetch failed'))) {
+    await waitWithBackoff(2 - retries, 2, `[harness] Transient error on ${taskId || 'task'} (${routeHeader}): ${res.error}`);
+    res = await callLlmGate(prompt, routeHeader, taskId);
+    retries--;
+  }
+  return res;
 }
 
 /**
@@ -160,7 +180,7 @@ async function run() {
       // 1. Calculate All-SLM Baseline (force-local)
       let localCache = readCache(task.id, 'force-local');
       if (!localCache) {
-        const { answer, error } = await callLlmGate(task.prompt, 'force-local');
+        const { answer, error } = await callLlmGateWithRetry(task.prompt, 'force-local', task.id);
         localCache = {
           promptVersion: CONFIG.PROMPT_VERSION,
           slmModel: CONFIG.SLM_GATE_TESTING_MODEL,
@@ -194,7 +214,7 @@ async function run() {
         // 2. Calculate All-Cloud Baseline (Arm A)
         let rawCache = readCache(task.id, 'raw');
         if (!rawCache) {
-          const { answer, reqId, error, cost, inTokens, outTokens } = await callLlmGate(task.prompt, 'raw');
+          const { answer, reqId, error, cost, inTokens, outTokens } = await callLlmGateWithRetry(task.prompt, 'raw', task.id);
           rawCache = {
             promptVersion: CONFIG.PROMPT_VERSION,
             slmModel: CONFIG.SLM_GATE_TESTING_MODEL,
@@ -219,7 +239,7 @@ async function run() {
         // 3. Evaluate the Router logic (Arm B)
         let autoCache = readCache(task.id, 'auto');
         if (!autoCache) {
-          const { answer, reqId, error, cost, inTokens, outTokens, route } = await callLlmGate(task.prompt, 'auto');
+          const { answer, reqId, error, cost, inTokens, outTokens, route } = await callLlmGateWithRetry(task.prompt, 'auto', task.id);
           autoCache = {
             promptVersion: CONFIG.PROMPT_VERSION,
             slmModel: CONFIG.SLM_GATE_TESTING_MODEL,
@@ -262,7 +282,14 @@ async function run() {
           api_latency_s: 0.45,
           quality_score: armBCorrect ? 1.0 : 0.0,
           slm_gate: 'on',
-          meta: JSON.stringify({ taskId: task.id, synthetic: true, raw_in_tok: armBInTokens })
+          meta: JSON.stringify({ 
+            taskId: task.id, 
+            synthetic: true, 
+            raw_in_tok: armBInTokens,
+            category: task.category,
+            local_attempted: isLocal ? 1 : 0,
+            local_accepted: isLocal ? 1 : 0
+          })
         };
         writeEvent(event);
       }

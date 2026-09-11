@@ -35,3 +35,4 @@ harness/.venv/
 # ─── TLS ───
 .ai
 .agents
+.loop-out/

@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
-import { CONFIG } from '../config.js';
 import crypto from 'node:crypto';
+import { CONFIG } from '../config.js';
 
 let db: Database.Database | null = null;
 
@@ -343,6 +343,39 @@ export function computeCycleRates(
   return out;
 }
 
+export function computeCycleRateAvg(
+  rows: LedgerEvent[],
+  fallbackProvider: 'claude' | 'chatgpt' | 'gemini' | null = CONFIG.PROVIDER ?? null
+): Record<'claude' | 'chatgpt' | 'gemini', number | null> {
+  const plans = {
+    claude: CONFIG.RESOLVED_PLAN_CLAUDE,
+    chatgpt: CONFIG.RESOLVED_PLAN_CHATGPT,
+    gemini: CONFIG.RESOLVED_PLAN_GEMINI
+  };
+  const counts: Record<'claude' | 'chatgpt' | 'gemini', number> = { claude: 0, chatgpt: 0, gemini: 0 };
+  const sums: Record<'claude' | 'chatgpt' | 'gemini', number> = { claude: 0, chatgpt: 0, gemini: 0 };
+
+  for (const r of rows) {
+    const p = (r.provider || providerFromModel(r.api_model) || providerFromAgent(r.agent) || fallbackProvider || null) as 'claude' | 'chatgpt' | 'gemini' | null;
+    if (p && (p === 'claude' || p === 'chatgpt' || p === 'gemini')) {
+      const baseline = perEventBaselineTokens(r);
+      if (baseline > 0) {
+        const saved = perEventTokensSaved(r);
+        const wm = plans[p].windowMinutes;
+        const val = wm * (saved / baseline);
+        sums[p] += val;
+        counts[p] += 1;
+      }
+    }
+  }
+
+  return {
+    claude: counts.claude > 0 ? sums.claude / counts.claude : null,
+    chatgpt: counts.chatgpt > 0 ? sums.chatgpt / counts.chatgpt : null,
+    gemini: counts.gemini > 0 ? sums.gemini / counts.gemini : null,
+  };
+}
+
 export function writeEvent(e: LedgerEvent) {
   const provider = e.provider ?? providerFromModel(e.api_model) ?? providerFromAgent(e.agent) ?? CONFIG.PROVIDER ?? null;
   const statement = getDb().prepare(`
@@ -599,6 +632,23 @@ export function formatEventForLangfuse(e: LedgerEvent): LangfuseQueuePayload {
     comment: verifiedComment
   });
 
+  const resolvedProvider = (e.provider ?? providerFromModel(e.api_model) ?? providerFromAgent(e.agent) ?? CONFIG.PROVIDER ?? null) as 'claude' | 'chatgpt' | 'gemini' | null;
+  if (resolvedProvider && (resolvedProvider === 'claude' || resolvedProvider === 'chatgpt' || resolvedProvider === 'gemini') && baselineTokens > 0) {
+    const plans = {
+      claude: CONFIG.RESOLVED_PLAN_CLAUDE,
+      chatgpt: CONFIG.RESOLVED_PLAN_CHATGPT,
+      gemini: CONFIG.RESOLVED_PLAN_GEMINI
+    };
+    const wm = plans[resolvedProvider].windowMinutes;
+    const value = wm * (tokensSaved / baselineTokens);
+    scores.push({
+      id: `${e.request_id}_score_cycle_${resolvedProvider}`,
+      name: `cycle_extended_per_window_${resolvedProvider}`,
+      value,
+      dataType: 'NUMERIC'
+    });
+  }
+
   return {
     trace: {
       id: e.request_id,
@@ -711,19 +761,21 @@ export class LangfuseSink {
         body: JSON.stringify({ batch })
       });
       
+      let body: { errors?: Array<{ id?: string; status?: number; message?: string; error?: string }> } | null = null;
+      try {
+        body = await res.json() as { errors?: Array<{ id?: string; status?: number; message?: string; error?: string }> };
+      } catch { /* not JSON */ }
+
+      if (body && Array.isArray(body.errors) && body.errors.length > 0) {
+        for (const e of body.errors) {
+          console.error(`[ledger] Langfuse per-item error: id=${e.id ?? 'unknown'} status=${e.status ?? 'unknown'} ${e.message ?? e.error ?? ''}`);
+        }
+      }
+
       if (!res.ok) {
-        const errText = await res.text();
+        const errText = body ? JSON.stringify(body) : await res.text().catch(() => '(no body)');
         console.warn(`[ledger] Warning: Langfuse ingestion failed (${res.status}): ${errText}`);
       } else {
-        // Langfuse returns 207 with per-item errors even when res.ok is true
-        try {
-          const body = await res.json() as { errors?: Array<{ id?: string; status: number; message?: string; error?: string }> };
-          if (body.errors && body.errors.length > 0) {
-            for (const e of body.errors) {
-              console.warn(`[ledger] Langfuse per-item error: id=${e.id ?? 'unknown'} status=${e.status} ${e.message ?? e.error ?? ''}`);
-            }
-          }
-        } catch { /* body already consumed or not JSON — safe to ignore */ }
         const placeholders = rowIds.map(() => '?').join(',');
         db.prepare(`DELETE FROM langfuse_queue WHERE id IN (${placeholders})`).run(...rowIds);
       }
@@ -733,106 +785,11 @@ export class LangfuseSink {
     }
   }
 
-  static _lastPublishTs = 0;
-
-  static async publishCycleRates(options?: { force?: boolean }) {
-    if (!this.hasValidConfig()) return;
-
-    // Throttle to 1 per minute unless we are explicitly given precomputed stats (e.g. from sync loop)
-    const now = Date.now();
-    if (!options?.force && now - this._lastPublishTs < 60000) return;
-    this._lastPublishTs = now;
-
-    const db = getDb();
-    const rows = db.prepare(`SELECT * FROM events`).all() as LedgerEvent[];
-    const providerStats = computeTotalsByProvider(rows);
-    const rates = computeCycleRates(rows);
-
-    const timestamp = new Date().toISOString();
-    const batch: any[] = [
-      {
-        id: crypto.randomUUID(),
-        type: 'trace-create',
-        timestamp,
-        body: {
-          id: 'slmgate_cycle_rate_summary',
-          name: 'SLM Gate Cycle Rates'
-        }
-      }
-    ];
-
-    for (const [provider, stats] of Object.entries(providerStats)) {
-      if (stats.baselineTokens > 0) {
-        batch.push({
-          id: crypto.randomUUID(),
-          type: 'score-create',
-          timestamp,
-          body: {
-            traceId: 'slmgate_cycle_rate_summary',
-            id: `slmgate_cycle_rate_${provider}`,
-            name: `cycle_extended_per_window_${provider}`,
-            value: rates[provider as keyof typeof rates],
-            dataType: 'NUMERIC'
-          }
-        });
-      }
-    }
-
-    if (batch.length === 1) {
-      console.error('[ledger] No provider had traffic; no cycle scores published.');
-      return; // Only trace, no scores
-    }
-
-    // Build a human-readable summary of what we're publishing
-    const publishedProviders: string[] = [];
-    const skippedProviders: string[] = [];
-    for (const p of ['gemini', 'chatgpt', 'claude'] as const) {
-      if (providerStats[p].baselineTokens > 0) {
-        publishedProviders.push(`${p}=${rates[p].toFixed(2)}`);
-      } else {
-        skippedProviders.push(p);
-      }
-    }
-
-    try {
-      const auth = Buffer.from(`${CONFIG.LANGFUSE_PUBLIC_KEY}:${CONFIG.LANGFUSE_SECRET_KEY}`).toString('base64');
-      const res = await fetch(`${CONFIG.LANGFUSE_HOST}/api/public/ingestion`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Basic ${auth}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ batch })
-      });
-      
-      if (!res.ok) {
-        console.warn(`[ledger] Warning: Langfuse cycle rate publish failed (${res.status}): ${await res.text()}`);
-      } else {
-        // Surface per-item errors from 207 responses
-        try {
-          const body = await res.json() as { errors?: Array<{ id?: string; status: number; message?: string; error?: string }> };
-          if (body.errors && body.errors.length > 0) {
-            for (const e of body.errors) {
-              console.warn(`[ledger] Langfuse cycle-rate per-item error: id=${e.id ?? 'unknown'} status=${e.status} ${e.message ?? e.error ?? ''}`);
-            }
-          }
-        } catch { /* body already consumed or not JSON — safe to ignore */ }
-
-        const skippedSuffix = skippedProviders.length > 0 ? ` (${skippedProviders.join(', ')} skipped)` : '';
-        console.error(`[ledger] Published cycle rates: ${publishedProviders.join(', ')}${skippedSuffix}`);
-      }
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.warn(`[ledger] Warning: Langfuse cycle rate publish failed: ${message}`);
-    }
-  }
-
   /**
    * Test-only utility to reset the internal client state.
    */
   static __resetForTests() {
     db = null;
-    this._lastPublishTs = 0;
   }
 }
 

@@ -38,6 +38,57 @@ export interface PipelineResult {
   hasCodeFence?: boolean;
 }
 
+/**
+ * Determines whether an unknown thrown value is a transient, retryable network failure.
+ *
+ * @desc Inspects error name, system error code, and message signatures for network aborts/timeouts.
+ * @param err The caught unknown exception
+ * @returns True if the error is considered transient and safe to retry
+ * @example
+ * ```ts
+ * if (isRetryableNetworkError(err) && attempt < MAX_RETRIES) { ... }
+ * ```
+ */
+export function isRetryableNetworkError(err: unknown): boolean {
+  if (err instanceof Error) {
+    const code = (err as { code?: string }).code;
+    return err.name === 'TimeoutError' || code === 'ECONNRESET' || err.message.includes('fetch failed');
+  }
+  return false;
+}
+
+/**
+ * Calculates exponential backoff with jitter and awaits the delay period.
+ *
+ * @desc Computes 1500ms * 2^attempt + jitter, respecting an optional `Retry-After` header value in seconds.
+ * Logs a diagnostic warning to stderr before waiting.
+ * @param attempt Current zero-indexed retry attempt
+ * @param maxRetries Total allowed retry attempts
+ * @param reason Human-readable context for why the backoff is being executed
+ * @param retryAfter Optional `Retry-After` header string from HTTP response
+ * @returns Promise that resolves once the backoff delay has completed
+ * @example
+ * ```ts
+ * await waitWithBackoff(attempt, MAX_RETRIES, 'Upstream HTTP 429', res.headers.get('retry-after'));
+ * ```
+ */
+export async function waitWithBackoff(
+  attempt: number,
+  maxRetries: number,
+  reason: string,
+  retryAfter?: string | null
+): Promise<void> {
+  let delayMs = 1500 * Math.pow(2, attempt) + Math.random() * 500;
+  if (retryAfter) {
+    const parsedSeconds = parseInt(retryAfter, 10);
+    if (!isNaN(parsedSeconds) && parsedSeconds > 0) {
+      delayMs = Math.max(delayMs, parsedSeconds * 1000);
+    }
+  }
+  console.error(`[llm-gate] ${reason}. Retrying in ${Math.round(delayMs)}ms (attempt ${attempt + 1}/${maxRetries})...`);
+  await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+}
+
 // Very basic token estimator. A real implementation would use a proper tokenizer like tiktoken.
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
@@ -334,37 +385,73 @@ export async function processPipeline(
 
   result.apiInTok = countMessagesTokens(compressedReq.messages, compressedReq.system);
 
-  // Perform API request
-  try {
-    const apiRes = await fetch(fetchUrl!, {
-      method: 'POST',
-      headers: fetchHeaders,
-      body: JSON.stringify(fetchBody),
-      signal: AbortSignal.timeout(30000)
-    });
+  // Perform API request with exponential backoff for 429 / 5xx and transient network issues
+  const MAX_RETRIES = 3;
+  let lastErr: Error | null = null;
 
-    if (!apiRes.ok) {
-      throw new Error(`Cloud API Error: ${apiRes.statusText}`);
-    }
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const apiRes = await fetch(fetchUrl!, {
+        method: 'POST',
+        headers: fetchHeaders,
+        body: JSON.stringify(fetchBody),
+        signal: AbortSignal.timeout(30000)
+      });
 
-    if (internalReq.stream) {
-      // In stream mode, we return the stream to the caller
-      result.body = apiRes.body; // Pass the readable stream
-    } else {
-      const data = await apiRes.json();
-      result.body = data;
-      
-      // Token counting
-      if (CONFIG.CLOUD_API_STYLE === 'anthropic') {
-        result.apiOutTok = data.usage?.output_tokens || 0;
-        result.apiInTok = data.usage?.input_tokens || result.apiInTok;
-      } else {
-        result.apiOutTok = data.usage?.completion_tokens || 0;
-        result.apiInTok = data.usage?.prompt_tokens || result.apiInTok;
+      if (!apiRes.ok) {
+        const isRateLimit = apiRes.status === 429;
+        const isServerErr = apiRes.status >= 500 && apiRes.status < 600;
+
+        if ((isRateLimit || isServerErr) && attempt < MAX_RETRIES) {
+          await waitWithBackoff(
+            attempt,
+            MAX_RETRIES,
+            `Upstream HTTP ${apiRes.status} (${apiRes.statusText})`,
+            apiRes.headers.get('retry-after')
+          );
+          continue;
+        }
+
+        throw new Error(`Cloud API Error: ${apiRes.statusText || apiRes.status}`);
       }
+
+      if (internalReq.stream) {
+        // In stream mode, we return the stream to the caller
+        result.body = apiRes.body; // Pass the readable stream
+      } else {
+        const data: unknown = await apiRes.json();
+        result.body = data;
+        
+        // Token counting
+        const usage = (data as { usage?: { output_tokens?: number; completion_tokens?: number; input_tokens?: number; prompt_tokens?: number } })?.usage;
+        if (CONFIG.CLOUD_API_STYLE === 'anthropic') {
+          result.apiOutTok = usage?.output_tokens || 0;
+          result.apiInTok = usage?.input_tokens || result.apiInTok;
+        } else {
+          result.apiOutTok = usage?.completion_tokens || 0;
+          result.apiInTok = usage?.prompt_tokens || result.apiInTok;
+        }
+      }
+      lastErr = null;
+      break;
+    } catch (err: unknown) {
+      const errorObj = err instanceof Error ? err : new Error(String(err));
+      lastErr = errorObj;
+
+      if (isRetryableNetworkError(err) && attempt < MAX_RETRIES) {
+        await waitWithBackoff(
+          attempt,
+          MAX_RETRIES,
+          `Cloud network error (${errorObj.message})`
+        );
+        continue;
+      }
+      break;
     }
-  } catch (err: any) {
-    throw new Error(`Cloud request failed: ${err.message}`);
+  }
+
+  if (lastErr) {
+    throw new Error(`Cloud request failed: ${lastErr.message}`);
   }
 
   if (isSafeForLocal && CONFIG.SEMCACHE) {

@@ -36,7 +36,7 @@ jest.unstable_mockModule('../../src/config.js', () => ({
   }
 }));
 
-const { getDb, writeEvent, cacheGet, cacheSet, LangfuseSink } = await import('../../src/ledger/index.js');
+const { getDb, writeEvent, cacheGet, cacheSet, LangfuseSink, formatEventForLangfuse, computeCycleRateAvg } = await import('../../src/ledger/index.js');
 
 describe('Ledger', () => {
   beforeEach(() => {
@@ -113,19 +113,165 @@ describe('Ledger', () => {
     expect(() => writeEvent(event)).not.toThrow();
   });
 
-  test('publishCycleRates computes correctness and respects throttle', async () => {
-    // 1. Mock DB data for computeTotals when no stats provided
+  test('emits per-event cycle score for gemini event and avoids other providers', () => {
+    const event = {
+      ts: new Date().toISOString(),
+      layer: 'mcp' as const,
+      request_id: 'req_gemini_1',
+      route: 'condition' as const,
+      is_local_call: 1,
+      in_tok: 100,
+      out_tok: 50,
+      api_in_tok: 0,
+      api_out_tok: 0,
+      cost_usd: 0,
+      slm_latency_s: 0.1,
+      api_latency_s: 0,
+      slm_gate: 'on' as const,
+      api_model: 'gemini-2.5-flash',
+    };
+
+    const payload = formatEventForLangfuse(event);
+    const cycleScores = (payload.scores || []).filter(s => s.name.startsWith('cycle_extended_per_window_'));
+    
+    expect(cycleScores).toHaveLength(1);
+    expect(cycleScores[0].name).toBe('cycle_extended_per_window_gemini');
+    expect(cycleScores[0].value).toBe(150);
+  });
+
+  test('event with no resolvable provider emits no cycle score', () => {
+    const event = {
+      ts: new Date().toISOString(),
+      layer: 'llm' as const,
+      request_id: 'req_unknown_1',
+      route: 'condition' as const,
+      is_local_call: 1,
+      in_tok: 100,
+      out_tok: 50,
+      api_in_tok: 0,
+      api_out_tok: 0,
+      cost_usd: 0,
+      slm_latency_s: 0.1,
+      api_latency_s: 0,
+      slm_gate: 'on' as const,
+      api_model: 'custom-model-without-provider',
+    };
+
+    const payload = formatEventForLangfuse(event);
+    const cycleScores = (payload.scores || []).filter(s => s.name.startsWith('cycle_extended_per_window_'));
+    expect(cycleScores).toHaveLength(0);
+  });
+
+  test('escalated gemini event emits value 0 for cycle score', () => {
+    const event = {
+      ts: new Date().toISOString(),
+      layer: 'llm' as const,
+      request_id: 'req_gemini_esc',
+      route: 'escalate' as const,
+      is_local_call: 0,
+      in_tok: 0,
+      out_tok: 0,
+      api_in_tok: 100,
+      api_out_tok: 50,
+      cost_usd: 0.005,
+      slm_latency_s: 0.1,
+      api_latency_s: 0.5,
+      slm_gate: 'on' as const,
+      api_model: 'gemini-2.5-flash',
+    };
+
+    const payload = formatEventForLangfuse(event);
+    const cycleScores = (payload.scores || []).filter(s => s.name.startsWith('cycle_extended_per_window_'));
+    
+    expect(cycleScores).toHaveLength(1);
+    expect(cycleScores[0].name).toBe('cycle_extended_per_window_gemini');
+    expect(cycleScores[0].value).toBe(0);
+  });
+
+  test('computeCycleRateAvg equals mean of emitted per-event values for provider', () => {
+    const rows = [
+      {
+        ts: new Date().toISOString(),
+        layer: 'mcp' as const,
+        request_id: 'r1',
+        route: 'condition' as const,
+        is_local_call: 1,
+        in_tok: 100,
+        out_tok: 50,
+        api_in_tok: 0,
+        api_out_tok: 0,
+        cost_usd: 0,
+        slm_latency_s: 0,
+        api_latency_s: 0,
+        slm_gate: 'on' as const,
+        api_model: 'gemini-2.5-flash',
+      },
+      {
+        ts: new Date().toISOString(),
+        layer: 'llm' as const,
+        request_id: 'r2',
+        route: 'escalate' as const,
+        is_local_call: 0,
+        in_tok: 0,
+        out_tok: 0,
+        api_in_tok: 200,
+        api_out_tok: 0,
+        cost_usd: 0,
+        slm_latency_s: 0,
+        api_latency_s: 0,
+        slm_gate: 'on' as const,
+        api_model: 'gemini-2.5-flash',
+      },
+      {
+        ts: new Date().toISOString(),
+        layer: 'mcp' as const,
+        request_id: 'r3',
+        route: 'condition' as const,
+        is_local_call: 1,
+        in_tok: 300,
+        out_tok: 0,
+        api_in_tok: 0,
+        api_out_tok: 0,
+        cost_usd: 0,
+        slm_latency_s: 0,
+        api_latency_s: 0,
+        slm_gate: 'on' as const,
+        api_model: 'claude-3-5-sonnet',
+      }
+    ];
+
+    const p1 = formatEventForLangfuse(rows[0]);
+    const p2 = formatEventForLangfuse(rows[1]);
+    const p3 = formatEventForLangfuse(rows[2]);
+
+    const v1 = p1.scores?.find(s => s.name === 'cycle_extended_per_window_gemini')?.value as number;
+    const v2 = p2.scores?.find(s => s.name === 'cycle_extended_per_window_gemini')?.value as number;
+    const v3 = p3.scores?.find(s => s.name === 'cycle_extended_per_window_claude')?.value as number;
+
+    const avg = computeCycleRateAvg(rows);
+    expect(avg.gemini).toBe((v1 + v2) / 2);
+    expect(avg.gemini).toBe(75);
+    expect(avg.claude).toBe(v3);
+    expect(avg.claude).toBe(300);
+    expect(avg.chatgpt).toBeNull();
+  });
+
+  test('flushQueue parses and logs 207 per-item errors to stderr', async () => {
     mockAll.mockReturnValue([
-      { route: 'defer_local', is_local_call: 1, in_tok: 100, out_tok: 50, api_in_tok: 0, api_out_tok: 0, verifier_flags: '', request_id: '1', api_model: 'gemini-2.5-flash' },
-      { route: 'escalate', is_local_call: 0, in_tok: 0, out_tok: 0, api_in_tok: 50, api_out_tok: 200, verifier_flags: '["escalate"]', request_id: '2', api_model: 'claude-3-5-sonnet' }
+      { id: 1, payload: JSON.stringify({ trace: { id: 't1' }, scores: [] }) }
     ]);
 
-    // Mock fetch for publishCycleRates
-    global.fetch = jest.fn(() => Promise.resolve({ ok: true, text: () => Promise.resolve(''), json: () => Promise.resolve({}) } as any));
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    global.fetch = jest.fn(() => Promise.resolve({
+      ok: true,
+      status: 207,
+      json: () => Promise.resolve({
+        errors: [{ id: 'err_score_1', status: 400, message: 'Invalid score' }]
+      })
+    } as any));
 
     const { CONFIG } = await import('../../src/config.js');
-
-    // Temporarily enable config for LangfuseSink
     const origKey = CONFIG.LANGFUSE_PUBLIC_KEY;
     Object.assign(CONFIG, {
       LANGFUSE_PUBLIC_KEY: 'test',
@@ -133,24 +279,18 @@ describe('Ledger', () => {
       LANGFUSE_HOST: 'http://test'
     });
 
-    // Call it first time
-    await LangfuseSink.publishCycleRates();
-    expect(global.fetch).toHaveBeenCalledTimes(1);
-    
-    // Call it immediately again (should throttle)
-    await LangfuseSink.publishCycleRates();
-    expect(global.fetch).toHaveBeenCalledTimes(1);
+    await LangfuseSink.flushQueue();
 
-    // Call it with force: true (bypasses throttle)
-    await LangfuseSink.publishCycleRates({ force: true });
-    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('err_score_1')
+    );
 
-    // Restore
     Object.assign(CONFIG, {
       LANGFUSE_PUBLIC_KEY: origKey,
       LANGFUSE_SECRET_KEY: '',
       LANGFUSE_HOST: ''
     });
+    errorSpy.mockRestore();
     delete (global as any).fetch;
   });
 });

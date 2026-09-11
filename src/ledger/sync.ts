@@ -8,8 +8,10 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { CONFIG, requireKeys } from '../config.js';
-import { computeCycleRates, computeTotalsByProvider, formatEventForLangfuse, getDb, LangfuseSink, LedgerEvent, logLedgerInfo } from './index.js';
+import { computeCycleRateAvg, formatEventForLangfuse, getDb, LangfuseSink, LedgerEvent, logLedgerInfo } from './index.js';
 import { initLangfuseConfigs } from './sync-config.js';
+
+export { computeCycleRateAvg };
 
 interface SyncStats {
   totalEvents: number;
@@ -98,21 +100,23 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
         },
         body: JSON.stringify({ batch })
       });
+      let body: { errors?: Array<{ id?: string; status?: number; message?: string; error?: string }> } | null = null;
+      try {
+        body = await res.json() as { errors?: Array<{ id?: string; status?: number; message?: string; error?: string }> };
+      } catch { /* not JSON */ }
+
+      if (body && Array.isArray(body.errors) && body.errors.length > 0) {
+        for (const e of body.errors) {
+          console.error(`[sync] Langfuse per-item error: id=${e.id ?? 'unknown'} status=${e.status ?? 'unknown'} ${e.message ?? e.error ?? ''}`);
+        }
+        stats.errors += body.errors.length;
+      }
+
       if (!res.ok) {
-        const errText = await res.text();
+        const errText = body ? JSON.stringify(body) : await res.text().catch(() => '(no body)');
         console.warn(`\nLangfuse sync failed (${res.status}): ${errText}`);
         stats.errors += batch.length; // Approximate
       } else {
-        // Surface per-item errors from Langfuse 207 responses
-        try {
-          const body = await res.json() as { errors?: Array<{ id?: string; status: number; message?: string; error?: string }> };
-          if (body.errors && body.errors.length > 0) {
-            for (const e of body.errors) {
-              console.warn(`[sync] Langfuse per-item error: id=${e.id ?? 'unknown'} status=${e.status} ${e.message ?? e.error ?? ''}`);
-            }
-            stats.errors += body.errors.length;
-          }
-        } catch { /* body already consumed or not JSON — safe to ignore */ }
         stats.syncedTraces += batchCount;
         process.stdout.write(`\rProgress: ${stats.syncedTraces}/${rows.length} traces synced...`);
       }
@@ -215,8 +219,7 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
     await flushBatch();
   }
 
-  const providerStats = computeTotalsByProvider(rows);
-  const rates = computeCycleRates(rows);
+  const avgRates = computeCycleRateAvg(rows);
   
   const claudePlan = CONFIG.RESOLVED_PLAN_CLAUDE;
   const chatgptPlan = CONFIG.RESOLVED_PLAN_CHATGPT;
@@ -224,10 +227,6 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
 
   if (!dryRun) {
     process.stdout.write(`\rProgress: ${stats.syncedTraces}/${rows.length} traces synced.\n\n`);
-
-    await LangfuseSink.publishCycleRates({ force: true }).catch(err => {
-      console.warn(`\n[ledger] Warning: Langfuse cycle rate publish failed during sync: ${err.message || String(err)}`);
-    });
   } else {
     console.log();
   }
@@ -245,9 +244,9 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
     { Metric: 'Net Dollars Saved', Value: `$${stats.costSavedUsd.toFixed(4)}` },
     { Metric: 'Net Tokens Saved', Value: stats.tokensSaved.toLocaleString() },
     { Metric: 'Sync Errors', Value: stats.errors },
-    { Metric: `Cycle Extends (ChatGPT ${chatgptPlan.windowMinutes}m)`, Value: providerStats.chatgpt.baselineTokens > 0 ? `~${rates.chatgpt.toFixed(1)} min per 3-hour window` : 'n/a (no traffic)' },
-    { Metric: `Cycle Extends (Claude ${claudePlan.windowMinutes}m)`, Value: providerStats.claude.baselineTokens > 0 ? `~${rates.claude.toFixed(1)} min per 5-hour window` : 'n/a (no traffic)' },
-    { Metric: `Cycle Extends (Gemini ${geminiPlan.windowMinutes}m)`, Value: providerStats.gemini.baselineTokens > 0 ? `~${rates.gemini.toFixed(1)} min per 5-hour window` : 'n/a (no traffic)' },
+    { Metric: `Cycle Extends (ChatGPT ${chatgptPlan.windowMinutes}m)`, Value: avgRates.chatgpt !== null ? `~${avgRates.chatgpt.toFixed(1)} min per 3-hour window` : 'n/a (no traffic)' },
+    { Metric: `Cycle Extends (Claude ${claudePlan.windowMinutes}m)`, Value: avgRates.claude !== null ? `~${avgRates.claude.toFixed(1)} min per 5-hour window` : 'n/a (no traffic)' },
+    { Metric: `Cycle Extends (Gemini ${geminiPlan.windowMinutes}m)`, Value: avgRates.gemini !== null ? `~${avgRates.gemini.toFixed(1)} min per 5-hour window` : 'n/a (no traffic)' },
   ]);
 
   return stats;

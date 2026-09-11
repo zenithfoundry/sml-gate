@@ -3,21 +3,77 @@
  * with tailored widgets to properly visualize SLM Gate categorical and numeric scores.
  */
 import { CONFIG, requireKeys } from '../config.js';
+import { setTimeout } from 'timers/promises';
+
+async function apiFetch(url: string, init: RequestInit, label: string): Promise<Response> {
+  let attempt = 0;
+  const maxRetries = 5;
+  
+  while (attempt <= maxRetries) {
+    // Pace all mutating/read requests to ensure we stay under 30/min (~2000ms/req)
+    await setTimeout(2100);
+    
+    const res = await fetch(url, init);
+    if (res.status === 429) {
+      attempt++;
+      if (attempt > maxRetries) {
+        throw new Error(`Rate limit exceeded on ${label} after ${maxRetries} retries.`);
+      }
+      let retryAfter = 60;
+      try {
+        const body = await res.json();
+        if (body.details && typeof body.details.retryAfterSeconds === 'number') {
+          retryAfter = body.details.retryAfterSeconds;
+        }
+      } catch (e) {
+        // body might not be JSON or might be empty
+      }
+      console.log(`⏳ Rate limited on ${label}; waiting ${retryAfter}s...`);
+      await setTimeout((retryAfter + 1) * 1000);
+      continue;
+    }
+    return res;
+  }
+  throw new Error(`Failed to fetch ${label}`);
+}
 
 async function setupDashboard(): Promise<void> {
   requireKeys(['LANGFUSE_PUBLIC_KEY', 'LANGFUSE_SECRET_KEY', 'LANGFUSE_HOST']);
+
+  if (process.argv.includes('--wait')) {
+    console.log('Sleeping for 60s to ensure Langfuse rate limits are reset...');
+    await setTimeout(60000);
+  }
 
   const baseUrl = CONFIG.LANGFUSE_HOST!.replace(/\/$/, '');
   const auth = `Basic ${Buffer.from(`${CONFIG.LANGFUSE_PUBLIC_KEY}:${CONFIG.LANGFUSE_SECRET_KEY}`).toString('base64')}`;
   const headers = { Authorization: auth, 'Content-Type': 'application/json' };
 
   console.log('=== SLM Gate: Langfuse Dashboard Setup ===\n');
-  console.log('\nIMPORTANT: setup-dashboard.ts POSTs NEW widgets each run and dedupes only the dashboard by name.');
-  console.log('BEFORE re-running this script, the operator MUST delete the old avg-based cycle widgets (and any duplicate placements) in the Langfuse UI to avoid visual duplication!\n');
+  console.log('If you just ran ledger:sync, wait ~60s — Langfuse limits 30 req/min.\n');
+  console.log('IMPORTANT: setup-dashboard.ts dedupes widgets and the dashboard by name.');
   
-  // 1. Create Widgets
-  console.log('Creating widgets...');
-  
+  // Track failures
+  let failures = 0;
+  let placedCount = 0;
+
+  // 1. Create/Retrieve Widgets
+  console.log('\nFetching existing widgets...');
+  let existingWidgets: any[] = [];
+  try {
+    const wRes = await apiFetch(`${baseUrl}/api/public/unstable/dashboard-widgets`, { headers }, 'fetch widgets');
+    if (wRes.ok) {
+      const data = await wRes.json();
+      existingWidgets = data.data || data;
+    } else {
+      console.warn(`⚠ Failed to fetch existing widgets: ${await wRes.text()}`);
+      failures++;
+    }
+  } catch (err) {
+    console.warn(`⚠ Error fetching existing widgets:`, err);
+    failures++;
+  }
+
   const widgets = [
     {
       name: 'Routing Decision',
@@ -57,117 +113,198 @@ async function setupDashboard(): Promise<void> {
     },
     {
       name: 'Claude Cycle Extended (min)',
-      description: "Extra minutes of your 5-hour Claude window that slm-gate frees up by answering prompts locally. Claude uses message-based metering, so token savings on forwarded prompts do not extend the cycle. This widget only populates when Claude receives traffic.",
+      description: "Average extra minutes of that provider's window per prompt, bounded [0, 300]. Extra minutes of your 5-hour Claude window that slm-gate frees up by answering prompts locally. Claude uses message-based metering, so token savings on forwarded prompts do not extend the cycle. This widget only populates when Claude receives traffic.",
       view: 'scores-numeric',
       chartType: 'NUMBER',
-      metrics: [{ measure: 'value', agg: 'max' }],
+      metrics: [{ measure: 'value', agg: 'avg' }],
       dimensions: [],
       filters: [{ type: 'string', column: 'name', operator: '=', value: 'cycle_extended_per_window_claude' }],
     },
     {
       name: 'ChatGPT Cycle Extended (min)',
-      description: "Extra minutes of your 3-hour ChatGPT window that slm-gate frees up by answering prompts locally. ChatGPT uses message-based metering, so token savings on forwarded prompts do not extend the cycle. This widget only populates when ChatGPT receives traffic.",
+      description: "Average extra minutes of that provider's window per prompt, bounded [0, 180]. Extra minutes of your 3-hour ChatGPT window that slm-gate frees up by answering prompts locally. ChatGPT uses message-based metering, so token savings on forwarded prompts do not extend the cycle. This widget only populates when ChatGPT receives traffic.",
       view: 'scores-numeric',
       chartType: 'NUMBER',
-      metrics: [{ measure: 'value', agg: 'max' }],
+      metrics: [{ measure: 'value', agg: 'avg' }],
       dimensions: [],
       filters: [{ type: 'string', column: 'name', operator: '=', value: 'cycle_extended_per_window_chatgpt' }],
     },
     {
       name: 'Gemini Cycle Extended (min)',
-      description: "Extra minutes of your 5-hour Gemini window that slm-gate frees up by answering prompts locally. Gemini uses compute-based metering, making token savings extremely valuable. This widget only populates when Gemini receives traffic.",
+      description: "Average extra minutes of that provider's window per prompt, bounded [0, 300]. Extra minutes of your 5-hour Gemini window that slm-gate frees up by answering prompts locally. Gemini uses compute-based metering, making token savings extremely valuable. This widget only populates when Gemini receives traffic.",
       view: 'scores-numeric',
       chartType: 'NUMBER',
-      metrics: [{ measure: 'value', agg: 'max' }],
+      metrics: [{ measure: 'value', agg: 'avg' }],
       dimensions: [],
       filters: [{ type: 'string', column: 'name', operator: '=', value: 'cycle_extended_per_window_gemini' }],
     }
   ];
 
-  const createdWidgets = [];
+  console.log('\nCreating widgets...');
+  const targetWidgets = [];
+  
   for (const w of widgets) {
-    const res = await fetch(`${baseUrl}/api/public/unstable/dashboard-widgets`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(w),
-    });
-    if (!res.ok) {
-      console.warn(`⚠ Failed to create widget '${w.name}': ${await res.text()}`);
-    } else {
-      const data = await res.json();
-      console.log(`✓ Created widget: ${w.name}`);
-      createdWidgets.push(data);
+    const existing = existingWidgets.find(ew => ew.name === w.name);
+    if (existing) {
+      console.log(`✓ Reusing existing widget: ${w.name}`);
+      targetWidgets.push(existing);
+      continue;
+    }
+
+    try {
+      const res = await apiFetch(`${baseUrl}/api/public/unstable/dashboard-widgets`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(w),
+      }, `create widget '${w.name}'`);
+
+      if (!res.ok) {
+        console.warn(`⚠ Failed to create widget '${w.name}': ${await res.text()}`);
+        failures++;
+      } else {
+        const data = await res.json();
+        console.log(`✓ Created widget: ${w.name}`);
+        targetWidgets.push(data);
+      }
+    } catch (err) {
+      console.warn(`⚠ Error creating widget '${w.name}':`, err);
+      failures++;
     }
   }
 
   // 2. Create Dashboard
-  console.log('\nCreating SLM Gate Dashboard...');
+  console.log('\nCreating/Fetching SLM Gate Dashboard...');
   let dashboard;
-  const listRes = await fetch(`${baseUrl}/api/public/unstable/dashboards`, { headers });
-  if (listRes.ok) {
-    const listData = await listRes.json();
-    const existing = (listData.data || listData).find((d: any) => d.name === 'SLM Gate Performance');
-    if (existing) {
-      dashboard = existing;
-      console.log(`✓ Found existing dashboard: ${dashboard.name} (ID: ${dashboard.id})`);
+  try {
+    const listRes = await apiFetch(`${baseUrl}/api/public/unstable/dashboards`, { headers }, 'fetch dashboards');
+    if (listRes.ok) {
+      const listData = await listRes.json();
+      const existing = (listData.data || listData).find((d: any) => d.name === 'SLM Gate Performance');
+      if (existing) {
+        dashboard = existing;
+        console.log(`✓ Found existing dashboard: ${dashboard.name} (ID: ${dashboard.id})`);
+      }
+    } else {
+      console.warn(`⚠ Failed to list dashboards: ${await listRes.text()}`);
+      failures++;
     }
+  } catch (err) {
+    console.warn(`⚠ Error fetching dashboards:`, err);
+    failures++;
   }
 
-  if (!dashboard) {
-    const dashboardRes = await fetch(`${baseUrl}/api/public/unstable/dashboards`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        name: 'SLM Gate Performance',
-        description: 'Comprehensive metrics tracking local SLM deferral rates, token savings, and quality.',
-      }),
-    });
+  if (!dashboard && failures === 0) {
+    try {
+      const dashboardRes = await apiFetch(`${baseUrl}/api/public/unstable/dashboards`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          name: 'SLM Gate Performance',
+          description: 'Comprehensive metrics tracking local SLM deferral rates, token savings, and quality.',
+        }),
+      }, 'create dashboard');
 
-    if (!dashboardRes.ok) {
-      console.error(`Failed to create dashboard: ${await dashboardRes.text()}`);
-      return;
+      if (!dashboardRes.ok) {
+        console.error(`Failed to create dashboard: ${await dashboardRes.text()}`);
+        failures++;
+      } else {
+        dashboard = await dashboardRes.json();
+        console.log(`✓ Created NEW dashboard: ${dashboard.name} (ID: ${dashboard.id})`);
+      }
+    } catch (err) {
+      console.warn(`⚠ Error creating dashboard:`, err);
+      failures++;
     }
-    
-    dashboard = await dashboardRes.json();
-    console.log(`✓ Created NEW dashboard: ${dashboard.name} (ID: ${dashboard.id})`);
-    console.log(`\nNOTE: A NEW dashboard was created. If you already had an "SLM Gate Performance" dashboard, you may want to delete the old one in Langfuse to avoid duplicates.`);
   }
 
   // 3. Attach Widgets to Dashboard
-  console.log('\nPlacing widgets on dashboard...');
-  
-  // Arrange them in a 2x2 grid
-  // Standard grid is usually 12 cols wide, x:0-12, y: row
-  const placements = [
-    { type: 'widget', widgetId: createdWidgets[0].id },
-    { type: 'widget', widgetId: createdWidgets[1].id },
-    { type: 'widget', widgetId: createdWidgets[2].id },
-    { type: 'widget', widgetId: createdWidgets[3].id },
-    { type: 'widget', widgetId: createdWidgets[4].id },
-    { type: 'widget', widgetId: createdWidgets[5].id },
-    { type: 'widget', widgetId: createdWidgets[6].id },
-  ];
+  if (dashboard && targetWidgets.length === widgets.length) {
+    console.log('\nChecking existing placements...');
+    
+    try {
+      const dashRes = await apiFetch(`${baseUrl}/api/public/unstable/dashboards/${dashboard.id}`, { headers }, 'fetch specific dashboard');
+      if (dashRes.ok) {
+        const dashData = await dashRes.json();
+        const existingPlacements = dashData.definition?.widgets || [];
+        
+        // Remove placements whose widget name matches one we are about to place
+        for (const placement of existingPlacements) {
+          const placementWidget = existingWidgets.find(ew => ew.id === placement.widgetId) 
+                               || targetWidgets.find(tw => tw.id === placement.widgetId);
+                               
+          if (placementWidget && widgets.some(w => w.name === placementWidget.name)) {
+            console.log(`Removing existing placement for '${placementWidget.name}'...`);
+            const delRes = await apiFetch(`${baseUrl}/api/public/unstable/dashboards/${dashboard.id}/placements/${placement.id}`, {
+              method: 'DELETE',
+              headers,
+            }, `delete placement for '${placementWidget.name}'`);
+            
+            if (!delRes.ok) {
+              console.warn(`⚠ Failed to delete placement: ${await delRes.text()}`);
+              failures++;
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`⚠ Error removing existing placements:`, err);
+      failures++;
+    }
 
-  for (const [i, p] of placements.entries()) {
-    if (!p.widgetId) continue;
-    const res = await fetch(`${baseUrl}/api/public/unstable/dashboards/${dashboard.id}/placements`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(p),
-    });
-    if (res.ok) {
-      console.log(`✓ Placed widget: ${widgets[i].name}`);
-    } else {
-      console.warn(`⚠ Failed to place widget '${widgets[i].name}': ${await res.text()}`);
+    console.log('\nPlacing widgets on dashboard...');
+    
+    // Arrange them in a 2x2 grid
+    // Standard grid is usually 12 cols wide, x:0-12, y: row
+    const placements = [
+      { type: 'widget', widgetId: targetWidgets[0].id },
+      { type: 'widget', widgetId: targetWidgets[1].id },
+      { type: 'widget', widgetId: targetWidgets[2].id },
+      { type: 'widget', widgetId: targetWidgets[3].id },
+      { type: 'widget', widgetId: targetWidgets[4].id },
+      { type: 'widget', widgetId: targetWidgets[5].id },
+      { type: 'widget', widgetId: targetWidgets[6].id },
+    ];
+
+    for (const [i, p] of placements.entries()) {
+      if (!p.widgetId) continue;
+      try {
+        const res = await apiFetch(`${baseUrl}/api/public/unstable/dashboards/${dashboard.id}/placements`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(p),
+        }, `place widget '${widgets[i].name}'`);
+        
+        if (res.ok) {
+          console.log(`✓ Placed widget: ${widgets[i].name}`);
+          placedCount++;
+        } else {
+          console.warn(`⚠ Failed to place widget '${widgets[i].name}': ${await res.text()}`);
+          failures++;
+        }
+      } catch (err) {
+        console.warn(`⚠ Error placing widget '${widgets[i].name}':`, err);
+        failures++;
+      }
     }
   }
 
-  console.log(`\n🎉 Dashboard created successfully!`);
-  const projectId = dashboard.projectId;
-  if (projectId) {
-    console.log(`👉 View it at: ${baseUrl}/project/${projectId}/dashboards/${dashboard.id}`);
-  } else {
-    console.log(`👉 To view it, open Langfuse and click "Dashboards" in the left sidebar.`);
+  console.log(`\n================================`);
+  if (failures > 0) {
+    console.error(`❌ Setup failed! Encountered ${failures} error(s) during dashboard configuration.`);
+    console.error(`Please review the warnings above.`);
+    process.exit(1);
+  }
+
+  console.log(`🎉 Dashboard setup successful!`);
+  console.log(`✓ ${placedCount}/${widgets.length} widgets placed on SLM Gate Performance.`);
+  
+  if (dashboard) {
+    const projectId = dashboard.projectId;
+    if (projectId) {
+      console.log(`👉 View it at: ${baseUrl}/project/${projectId}/dashboards/${dashboard.id}`);
+    } else {
+      console.log(`👉 To view it, open Langfuse and click "Dashboards" in the left sidebar.`);
+    }
   }
 }
 
