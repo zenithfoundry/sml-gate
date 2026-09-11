@@ -69,6 +69,9 @@ export const server = http.createServer(async (req, res) => {
       ? parseOpenAIRequest(body, CONFIG.SLM_BRAIN_MODEL)
       : parseAnthropicRequest(body, CONFIG.SLM_BRAIN_MODEL);
 
+    /** Capture the client's model string for attribution (e.g. 'gemini-2.5-pro') */
+    const inboundModel = typeof body?.model === 'string' ? body.model : undefined;
+
     const routePolicy = (req.headers['x-slm-route'] as string) || 'auto';
     if (!['raw', 'auto', 'force-local'].includes(routePolicy)) {
       res.writeHead(400).end('Invalid x-slm-route header');
@@ -85,7 +88,8 @@ export const server = http.createServer(async (req, res) => {
       route: result.route,
       is_local_call: result.isLocal ? 1 : 0,
       slm_model: result.isLocal ? result.model : undefined,
-      api_model: result.isLocal ? undefined : result.model,
+      api_model: result.isLocal ? undefined
+        : (result.model && result.model !== 'unknown' ? result.model : inboundModel),
       in_tok: result.isLocal ? result.inTok : 0,
       out_tok: result.isLocal ? result.outTok : 0,
       api_in_tok: result.apiInTok,

@@ -698,7 +698,7 @@ MCP_GATE_TRANSPORT=stdio
 DOWNSTREAM_MCP=                         # Leave blank for standalone; set to TLS config for downstream
 
 # ── Ledger & Telemetry ─────────────────────────────────────────────────────
-LEDGER_PATH=./output/ledger.db
+LEDGER_PATH=./output/ledger.sqlite
 LANGFUSE_PUBLIC_KEY=                    # Optional — leave blank if not using Langfuse
 LANGFUSE_SECRET_KEY=
 LANGFUSE_HOST=https://cloud.langfuse.com
@@ -758,7 +758,8 @@ After the local AI answers, a "verifier" grades whether the answer is good enoug
 
 #### Ledger & Telemetry
 
-- **`LEDGER_PATH`** — Where the local database file is stored. This is what `pnpm run slm-gate metrics` reads from. Default: `./output/ledger.db`
+- **`LEDGER_PATH`** — Where the local database file is stored. This is what `pnpm run slm-gate metrics` reads from. Default: `./output/ledger.sqlite`. **Important:** If the gate runs inside an MCP server (e.g. Antigravity) and CLI commands run from a different shell, both must resolve to the **same absolute path** — otherwise they silently write to different files. Set `LEDGER_PATH` to an absolute path to avoid this.
+- **`PROVIDER`** — The cloud provider your IDE sends traffic to (`gemini`, `claude`, or `chatgpt`). Used for per-provider cycle extension metrics when the inbound request carries no recognizable model string. Not the same as `SLM_PROVIDER`. Default: `gemini`.
 - **`LANGFUSE_PUBLIC_KEY`**, **`LANGFUSE_SECRET_KEY`**, **`LANGFUSE_HOST`** — Optional Langfuse connection. Fill these in only if you're using Langfuse for visual dashboards. Leave blank otherwise.
 - **`SUBSCRIPTION_PLAN`** — Tells the metrics dashboard which plan you're on, so it can calculate how much subscription runway you've reclaimed. Valid values: `claude-pro`, `claude-max-5x`, `claude-max-20x`, `chatgpt-go`, `chatgpt-plus`, `chatgpt-pro-5x`, `chatgpt-pro-20x`, `gemini-plus`, `gemini-pro`, `gemini-ultra`.
 

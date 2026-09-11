@@ -1,6 +1,6 @@
 import { server } from './server.js';
 import { CONFIG } from '../config.js';
-import { LangfuseSink } from '../ledger/index.js';
+import { LangfuseSink, logLedgerInfo } from '../ledger/index.js';
 
 /**
  * Entry point for the `llm-gate` layer.
@@ -15,6 +15,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     sinks.push('langfuse');
   }
 
+  logLedgerInfo('llm-gate');
   server.listen(CONFIG.LLM_GATE_PORT, () => {
     console.error(`LLM Gate running on port ${CONFIG.LLM_GATE_PORT} (inbound: ${CONFIG.LLM_GATE_EXPOSE.join(', ')}). sinks: [${sinks.join(', ')}]`);
   });

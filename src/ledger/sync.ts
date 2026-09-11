@@ -6,8 +6,9 @@
  */
 
 import crypto from 'node:crypto';
+import path from 'node:path';
 import { CONFIG, requireKeys } from '../config.js';
-import { computeCycleRates, computeTotalsByProvider, formatEventForLangfuse, getDb, LangfuseSink, LedgerEvent } from './index.js';
+import { computeCycleRates, computeTotalsByProvider, formatEventForLangfuse, getDb, LangfuseSink, LedgerEvent, logLedgerInfo } from './index.js';
 import { initLangfuseConfigs } from './sync-config.js';
 
 interface SyncStats {
@@ -29,9 +30,10 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
   const { limit, dryRun = false } = options;
 
   console.log('=== SLM Gate: SQLite to Langfuse Ledger Sync ===\n');
-  console.log(`Database Source : ${CONFIG.LEDGER_PATH}`);
+  console.log(`Database Source : ${path.resolve(CONFIG.LEDGER_PATH)}`);
   console.log(`Target Host     : ${CONFIG.LANGFUSE_HOST || '<Not Set>'}`);
   console.log(`Mode            : ${dryRun ? 'DRY-RUN (No network requests)' : 'LIVE SYNC'}\n`);
+  logLedgerInfo('sync');
 
   if (!dryRun) {
     requireKeys(['LANGFUSE_PUBLIC_KEY', 'LANGFUSE_SECRET_KEY', 'LANGFUSE_HOST']);
@@ -83,7 +85,7 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
   const BATCH_SIZE = 50;
   let batchCount = 0;
   
-  let batch: any[] = [];
+  let batch: unknown[] = [];
   const flushBatch = async () => {
     if (batch.length === 0) return;
     try {
@@ -101,11 +103,22 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
         console.warn(`\nLangfuse sync failed (${res.status}): ${errText}`);
         stats.errors += batch.length; // Approximate
       } else {
+        // Surface per-item errors from Langfuse 207 responses
+        try {
+          const body = await res.json() as { errors?: Array<{ id?: string; status: number; message?: string; error?: string }> };
+          if (body.errors && body.errors.length > 0) {
+            for (const e of body.errors) {
+              console.warn(`[sync] Langfuse per-item error: id=${e.id ?? 'unknown'} status=${e.status} ${e.message ?? e.error ?? ''}`);
+            }
+            stats.errors += body.errors.length;
+          }
+        } catch { /* body already consumed or not JSON — safe to ignore */ }
         stats.syncedTraces += batchCount;
         process.stdout.write(`\rProgress: ${stats.syncedTraces}/${rows.length} traces synced...`);
       }
-    } catch (err: any) {
-      console.error('\nNetwork error during sync:', err.message || err);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('\nNetwork error during sync:', message);
       stats.errors += batch.length;
     }
     batch = [];

@@ -74,6 +74,7 @@ const envSchema = z.object({
   MCP_GATE_PORT: parseInteger(8788),
 
   // STEP 5
+  PROVIDER: z.enum(['gemini', 'claude', 'chatgpt']).optional(),
   LEDGER_PATH: z.string().default(path.join(OUTPUT_DIR, 'ledger.sqlite')),
   LANGFUSE_PUBLIC_KEY: z.string().optional(),
   LANGFUSE_SECRET_KEY: z.string().optional(),

@@ -156,6 +156,19 @@ export function getDb(): Database.Database {
   return db;
 }
 
+/**
+ * Log the resolved ledger database path and event count to stderr.
+ * Call at startup from each layer entry point so divergent paths are immediately obvious.
+ *
+ * @param layer - Identifier for the calling layer (e.g. 'mcp-gate', 'llm-gate', 'sync')
+ */
+export function logLedgerInfo(layer: string): void {
+  const database = getDb();
+  const count = (database.prepare('SELECT count(*) as c FROM events').get() as { c: number })?.c ?? 0;
+  const resolved = path.resolve(CONFIG.LEDGER_PATH);
+  console.error(`[${layer}] Using database: ${resolved} (${count} events)`);
+}
+
 export interface ElisionRecord {
   id: string;
   tool_name: string;
@@ -293,14 +306,17 @@ export function computeTotals(rows: LedgerEvent[]) {
   return { tokensSaved, baselineTokens };
 }
 
-export function computeTotalsByProvider(rows: LedgerEvent[]) {
+export function computeTotalsByProvider(
+  rows: LedgerEvent[],
+  fallbackProvider: 'claude' | 'chatgpt' | 'gemini' | null = CONFIG.PROVIDER ?? null
+) {
   const stats = {
     claude: { tokensSaved: 0, baselineTokens: 0 },
     chatgpt: { tokensSaved: 0, baselineTokens: 0 },
     gemini: { tokensSaved: 0, baselineTokens: 0 },
   };
   for (const r of rows) {
-    const p = r.provider || providerFromModel(r.api_model) || providerFromAgent(r.agent) || null;
+    const p = r.provider || providerFromModel(r.api_model) || providerFromAgent(r.agent) || fallbackProvider || null;
     if (p && stats[p as keyof typeof stats]) {
       stats[p as keyof typeof stats].baselineTokens += perEventBaselineTokens(r);
       stats[p as keyof typeof stats].tokensSaved += perEventTokensSaved(r);
@@ -309,8 +325,11 @@ export function computeTotalsByProvider(rows: LedgerEvent[]) {
   return stats;
 }
 
-export function computeCycleRates(rows: LedgerEvent[]): Record<'claude'|'chatgpt'|'gemini', number> {
-  const s = computeTotalsByProvider(rows);
+export function computeCycleRates(
+  rows: LedgerEvent[],
+  fallbackProvider?: 'claude' | 'chatgpt' | 'gemini' | null
+): Record<'claude'|'chatgpt'|'gemini', number> {
+  const s = computeTotalsByProvider(rows, fallbackProvider);
   const plans = {
     claude: CONFIG.RESOLVED_PLAN_CLAUDE,
     chatgpt: CONFIG.RESOLVED_PLAN_CHATGPT,
@@ -325,7 +344,7 @@ export function computeCycleRates(rows: LedgerEvent[]): Record<'claude'|'chatgpt
 }
 
 export function writeEvent(e: LedgerEvent) {
-  const provider = e.provider ?? providerFromModel(e.api_model) ?? providerFromAgent(e.agent) ?? null;
+  const provider = e.provider ?? providerFromModel(e.api_model) ?? providerFromAgent(e.agent) ?? CONFIG.PROVIDER ?? null;
   const statement = getDb().prepare(`
     INSERT OR REPLACE INTO events (
       ts, layer, request_id, session_id, skill, route, is_local_call, slm_model, api_model,
@@ -696,11 +715,21 @@ export class LangfuseSink {
         const errText = await res.text();
         console.warn(`[ledger] Warning: Langfuse ingestion failed (${res.status}): ${errText}`);
       } else {
+        // Langfuse returns 207 with per-item errors even when res.ok is true
+        try {
+          const body = await res.json() as { errors?: Array<{ id?: string; status: number; message?: string; error?: string }> };
+          if (body.errors && body.errors.length > 0) {
+            for (const e of body.errors) {
+              console.warn(`[ledger] Langfuse per-item error: id=${e.id ?? 'unknown'} status=${e.status} ${e.message ?? e.error ?? ''}`);
+            }
+          }
+        } catch { /* body already consumed or not JSON — safe to ignore */ }
         const placeholders = rowIds.map(() => '?').join(',');
         db.prepare(`DELETE FROM langfuse_queue WHERE id IN (${placeholders})`).run(...rowIds);
       }
-    } catch (err: any) {
-      console.warn(`[ledger] Warning: Langfuse network flush failed: ${err.message || String(err)}`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[ledger] Warning: Langfuse network flush failed: ${message}`);
     }
   }
 
@@ -749,8 +778,21 @@ export class LangfuseSink {
       }
     }
 
-    if (batch.length === 1) return; // Only trace, no scores
+    if (batch.length === 1) {
+      console.error('[ledger] No provider had traffic; no cycle scores published.');
+      return; // Only trace, no scores
+    }
 
+    // Build a human-readable summary of what we're publishing
+    const publishedProviders: string[] = [];
+    const skippedProviders: string[] = [];
+    for (const p of ['gemini', 'chatgpt', 'claude'] as const) {
+      if (providerStats[p].baselineTokens > 0) {
+        publishedProviders.push(`${p}=${rates[p].toFixed(2)}`);
+      } else {
+        skippedProviders.push(p);
+      }
+    }
 
     try {
       const auth = Buffer.from(`${CONFIG.LANGFUSE_PUBLIC_KEY}:${CONFIG.LANGFUSE_SECRET_KEY}`).toString('base64');
@@ -765,9 +807,23 @@ export class LangfuseSink {
       
       if (!res.ok) {
         console.warn(`[ledger] Warning: Langfuse cycle rate publish failed (${res.status}): ${await res.text()}`);
+      } else {
+        // Surface per-item errors from 207 responses
+        try {
+          const body = await res.json() as { errors?: Array<{ id?: string; status: number; message?: string; error?: string }> };
+          if (body.errors && body.errors.length > 0) {
+            for (const e of body.errors) {
+              console.warn(`[ledger] Langfuse cycle-rate per-item error: id=${e.id ?? 'unknown'} status=${e.status} ${e.message ?? e.error ?? ''}`);
+            }
+          }
+        } catch { /* body already consumed or not JSON — safe to ignore */ }
+
+        const skippedSuffix = skippedProviders.length > 0 ? ` (${skippedProviders.join(', ')} skipped)` : '';
+        console.error(`[ledger] Published cycle rates: ${publishedProviders.join(', ')}${skippedSuffix}`);
       }
-    } catch (err: any) {
-      console.warn(`[ledger] Warning: Langfuse cycle rate publish failed: ${err.message || String(err)}`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[ledger] Warning: Langfuse cycle rate publish failed: ${message}`);
     }
   }
 
