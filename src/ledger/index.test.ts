@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { formatEventForLangfuse, LedgerEvent } from './index.js';
+import { formatEventForLangfuse, LedgerEvent, computeCycleRates } from './index.js';
 
 describe('formatEventForLangfuse', () => {
   const baseEvent: LedgerEvent = {
@@ -101,5 +101,53 @@ describe('formatEventForLangfuse', () => {
     
     // Ensure the old cycle minutes scores are gone entirely
     expect(payloadLocal.scores?.find(s => s.name.startsWith('cycle_minutes_saved_'))).toBeUndefined();
+  });
+});
+
+describe('computeCycleRates', () => {
+  it('computes cycle rates using the token-based formula across providers', () => {
+    const rows: LedgerEvent[] = [
+      {
+        ts: new Date().toISOString(),
+        layer: 'mcp',
+        request_id: '1',
+        route: 'defer_local',
+        is_local_call: 1,
+        in_tok: 100,
+        out_tok: 100,
+        api_in_tok: 0,
+        api_out_tok: 0,
+        cost_usd: 0,
+        slm_latency_s: 1,
+        api_latency_s: 0,
+        slm_gate: 'on',
+        api_model: 'gemini-2.5-flash' // provider = gemini
+      },
+      {
+        ts: new Date().toISOString(),
+        layer: 'mcp',
+        request_id: '2',
+        route: 'defer_local',
+        is_local_call: 1,
+        in_tok: 50,
+        out_tok: 50,
+        api_in_tok: 0,
+        api_out_tok: 0,
+        cost_usd: 0,
+        slm_latency_s: 1,
+        api_latency_s: 0,
+        slm_gate: 'on',
+        api_model: 'claude-3-5-sonnet' // provider = claude
+      }
+    ];
+
+    const rates = computeCycleRates(rows);
+
+    // gemini: baseline = 200, saved = 200. rate = 300 * 200/200 = 300
+    // claude: baseline = 100, saved = 100. rate = 300 * 100/100 = 300
+    // chatgpt: baseline = 0, rate should be 0
+    expect(rates.gemini).toBe(300);
+    expect(rates.claude).toBe(300);
+    expect(rates.chatgpt).toBe(0);
   });
 });

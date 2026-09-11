@@ -11,6 +11,10 @@ const hasCol = (db.prepare("PRAGMA table_info(events)").all() as any[]).some(c =
 if (!hasCol) { db.exec("ALTER TABLE events ADD COLUMN provider TEXT"); console.log("Added events.provider."); }
 else { console.log("events.provider already present."); }
 
+const hasAgentCol = (db.prepare("PRAGMA table_info(events)").all() as any[]).some(c => c.name === 'agent');
+if (!hasAgentCol) { db.exec("ALTER TABLE events ADD COLUMN agent TEXT"); console.log("Added events.agent."); }
+else { console.log("events.agent already present."); }
+
 const res = db.prepare(`
   UPDATE events SET provider = CASE
     WHEN lower(coalesce(api_model,'')) LIKE '%claude%' OR lower(coalesce(api_model,'')) LIKE '%sonnet%'

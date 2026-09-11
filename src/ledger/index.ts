@@ -102,7 +102,8 @@ export function getDb(): Database.Database {
         quality_score REAL,
         slm_gate TEXT,
         meta TEXT,
-        provider TEXT
+        provider TEXT,
+        agent TEXT
       );
 
       CREATE TABLE IF NOT EXISTS cache (
@@ -317,16 +318,32 @@ export function computeTotalsByProvider(rows: LedgerEvent[]) {
   return stats;
 }
 
+export function computeCycleRates(rows: LedgerEvent[]): Record<'claude'|'chatgpt'|'gemini', number> {
+  const s = computeTotalsByProvider(rows);
+  const plans = {
+    claude: CONFIG.RESOLVED_PLAN_CLAUDE,
+    chatgpt: CONFIG.RESOLVED_PLAN_CHATGPT,
+    gemini: CONFIG.RESOLVED_PLAN_GEMINI
+  };
+  const out: any = { claude: 0, chatgpt: 0, gemini: 0 };
+  for (const p of ['claude', 'chatgpt', 'gemini'] as const) {
+    const t = s[p];
+    out[p] = t.baselineTokens > 0 ? Number((plans[p].windowMinutes * (t.tokensSaved / t.baselineTokens)).toFixed(2)) : 0;
+  }
+  return out;
+}
+
 export function writeEvent(e: LedgerEvent) {
+  const provider = e.provider ?? providerFromModel(e.api_model) ?? providerFromAgent(e.agent) ?? null;
   const statement = getDb().prepare(`
     INSERT OR REPLACE INTO events (
       ts, layer, request_id, session_id, skill, route, is_local_call, slm_model, api_model,
       in_tok, out_tok, api_in_tok, api_out_tok, cost_usd, slm_latency_s, api_latency_s,
-      verifier_flags, quality_score, slm_gate, meta
+      verifier_flags, quality_score, slm_gate, meta, provider, agent
     ) VALUES (
       @ts, @layer, @request_id, @session_id, @skill, @route, @is_local_call, @slm_model, @api_model,
       @in_tok, @out_tok, @api_in_tok, @api_out_tok, @cost_usd, @slm_latency_s, @api_latency_s,
-      @verifier_flags, @quality_score, @slm_gate, @meta
+      @verifier_flags, @quality_score, @slm_gate, @meta, @provider, @agent
     )
   `);
   
@@ -352,7 +369,9 @@ export function writeEvent(e: LedgerEvent) {
     verifier_flags: e.verifier_flags ?? null,
     quality_score: e.quality_score ?? null,
     slm_gate: e.slm_gate,
-    meta: e.meta ?? null
+    meta: e.meta ?? null,
+    provider: provider,
+    agent: e.agent ?? null
   });
 
   // Mirror to Langfuse if enabled
@@ -707,23 +726,18 @@ export class LangfuseSink {
 
   static _lastPublishTs = 0;
 
-  static async publishCycleRates() {
+  static async publishCycleRates(options?: { force?: boolean }) {
     if (!this.hasValidConfig()) return;
 
     // Throttle to 1 per minute unless we are explicitly given precomputed stats (e.g. from sync loop)
     const now = Date.now();
-    if (now - this._lastPublishTs < 60000) return;
+    if (!options?.force && now - this._lastPublishTs < 60000) return;
     this._lastPublishTs = now;
 
     const db = getDb();
     const rows = db.prepare(`SELECT * FROM events`).all() as LedgerEvent[];
     const providerStats = computeTotalsByProvider(rows);
-    
-    const plans = {
-      claude: CONFIG.RESOLVED_PLAN_CLAUDE,
-      chatgpt: CONFIG.RESOLVED_PLAN_CHATGPT,
-      gemini: CONFIG.RESOLVED_PLAN_GEMINI,
-    };
+    const rates = computeCycleRates(rows);
 
     const timestamp = new Date().toISOString();
     const batch: any[] = [
@@ -740,9 +754,6 @@ export class LangfuseSink {
 
     for (const [provider, stats] of Object.entries(providerStats)) {
       if (stats.baselineTokens > 0) {
-        const deferralShare = stats.totalCount > 0 ? stats.localCount / stats.totalCount : 0;
-        const plan = plans[provider as keyof typeof plans];
-        const rate = plan.windowMinutes * deferralShare;
         batch.push({
           id: crypto.randomUUID(),
           type: 'score-create',
@@ -751,7 +762,7 @@ export class LangfuseSink {
             traceId: 'slmgate_cycle_rate_summary',
             id: `slmgate_cycle_rate_${provider}`,
             name: `cycle_extended_per_window_${provider}`,
-            value: Number(rate.toFixed(2)),
+            value: rates[provider as keyof typeof rates],
             dataType: 'NUMERIC'
           }
         });
