@@ -60,21 +60,7 @@ describe('formatEventForLangfuse', () => {
     expect(accuracyScore).toBeUndefined();
   });
 
-  it('Test 5: Verify baseline_tokens score is emitted ONLY IF baselineTokens > 0', () => {
-    // Escalate event (no savings, but HAS cloud baseline)
-    const eventCloudTokens: LedgerEvent = { 
-      ...baseEvent, 
-      route: 'escalate', 
-      is_local_call: 0,
-      api_in_tok: 100,
-      api_out_tok: 50,
-      in_tok: 0,
-      out_tok: 0,
-      verifier_flags: '["escalate"]'
-    };
-    const payloadCloud = formatEventForLangfuse(eventCloudTokens);
-    expect(payloadCloud.scores?.find(s => s.name === 'baseline_tokens')?.value).toBe(150);
-
+  it('Test 5: Verify old cycle minutes scores are gone entirely', () => {
     // Defer local event (has savings and local baseline)
     const eventLocalTokens: LedgerEvent = { 
       ...baseEvent, 
@@ -85,19 +71,6 @@ describe('formatEventForLangfuse', () => {
       out_tok: 50
     };
     const payloadLocal = formatEventForLangfuse(eventLocalTokens);
-    expect(payloadLocal.scores?.find(s => s.name === 'baseline_tokens')?.value).toBe(150);
-
-    // No tokens event (e.g. error before any model call)
-    const eventNoTokens: LedgerEvent = { 
-      ...baseEvent, 
-      route: 'condition', 
-      api_in_tok: 0,
-      api_out_tok: 0,
-      in_tok: 0,
-      out_tok: 0
-    };
-    const payloadNoTokens = formatEventForLangfuse(eventNoTokens);
-    expect(payloadNoTokens.scores?.find(s => s.name === 'baseline_tokens')).toBeUndefined();
     
     // Ensure the old cycle minutes scores are gone entirely
     expect(payloadLocal.scores?.find(s => s.name.startsWith('cycle_minutes_saved_'))).toBeUndefined();

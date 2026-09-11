@@ -53,11 +53,6 @@ export async function syncScoreConfigs(): Promise<void> {
       description: 'Accuracy of the SLM gate output against the expected cloud model standard (%)'
     },
     {
-      name: 'baseline_tokens',
-      dataType: 'NUMERIC',
-      description: 'The raw "would-have-cost" token count (total tokens the prompt required)'
-    },
-    {
       name: 'cycle_extended_per_window_chatgpt',
       dataType: 'NUMERIC',
       description: 'Extra minutes of a 3h ChatGPT window from SLM savings (all-time rate)'

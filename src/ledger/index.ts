@@ -284,35 +284,26 @@ export function perEventBaselineTokens(e: LedgerEvent): number {
 export function computeTotals(rows: LedgerEvent[]) {
   let tokensSaved = 0;
   let baselineTokens = 0;
-  let localCount = 0;
-  let totalCount = rows.length;
   
   for (const r of rows) {
     baselineTokens += perEventBaselineTokens(r);
     tokensSaved += perEventTokensSaved(r);
-    if (isLocalEvent(r)) {
-      localCount += 1;
-    }
   }
   
-  return { tokensSaved, baselineTokens, localCount, totalCount };
+  return { tokensSaved, baselineTokens };
 }
 
 export function computeTotalsByProvider(rows: LedgerEvent[]) {
   const stats = {
-    claude: { tokensSaved: 0, baselineTokens: 0, localCount: 0, totalCount: 0 },
-    chatgpt: { tokensSaved: 0, baselineTokens: 0, localCount: 0, totalCount: 0 },
-    gemini: { tokensSaved: 0, baselineTokens: 0, localCount: 0, totalCount: 0 },
+    claude: { tokensSaved: 0, baselineTokens: 0 },
+    chatgpt: { tokensSaved: 0, baselineTokens: 0 },
+    gemini: { tokensSaved: 0, baselineTokens: 0 },
   };
   for (const r of rows) {
     const p = r.provider || providerFromModel(r.api_model) || providerFromAgent(r.agent) || null;
     if (p && stats[p as keyof typeof stats]) {
       stats[p as keyof typeof stats].baselineTokens += perEventBaselineTokens(r);
       stats[p as keyof typeof stats].tokensSaved += perEventTokensSaved(r);
-      stats[p as keyof typeof stats].totalCount += 1;
-      if (isLocalEvent(r)) {
-        stats[p as keyof typeof stats].localCount += 1;
-      }
     }
   }
   return stats;
@@ -574,17 +565,6 @@ export function formatEventForLangfuse(e: LedgerEvent): LangfuseQueuePayload {
       const isAccepted = parsedMeta.local_accepted === 1 || e.route === 'defer_local' || e.route === 'condition' || (e.is_local_call === 1 && !hasFailureFlag);
       scores.push({ id: `${e.request_id}_score_accuracy_rate_pct`, name: 'accuracy_rate_pct', value: isAccepted ? 100 : 0, dataType: 'NUMERIC' });
     }
-  }
-
-  // Baseline tokens score (emitted whenever baselineTokens > 0, including for escalated/forward_raw events)
-  const scoreBaselineTokens = (e.api_in_tok || 0) + (e.api_out_tok || 0) + (e.in_tok || 0) + (e.out_tok || 0);
-  if (scoreBaselineTokens > 0) {
-    scores.push({
-      id: `${e.request_id}_score_baseline_tokens`,
-      name: 'baseline_tokens',
-      value: scoreBaselineTokens,
-      dataType: 'NUMERIC'
-    });
   }
 
   const isLocal = isLocalEvent(e);
